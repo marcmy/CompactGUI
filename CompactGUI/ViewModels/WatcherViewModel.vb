@@ -28,7 +28,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
     <RelayCommand>
     Public Sub CancelBackgrounding()
         RunWatcherCommand.Cancel()
-        Watcher.BGCompactor.CancelCompacting()
+        Watcher.CancelCurrentRun()
         Application.Current.Dispatcher.Invoke(Sub() CancelBackgroundingCommand.NotifyCanExecuteChanged())
     End Sub
 
@@ -49,6 +49,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
     Private Async Function ReAnalyseWatched(watchedfolder As Watcher.WatchedFolder) As Task
         Await Task.Run(Function() Watcher.ParseSingleWatcher(watchedfolder))
     End Function
+
 
 
 
@@ -91,6 +92,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
     End Function
 
 
+
     Public Async Function AddFolderAsync(folderPath As String) As Task(Of CompressableFolder)
 
         If GetInvalidFolders({folderPath}).InvalidFolders.Count > 0 Then
@@ -100,7 +102,6 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
         End If
 
         Return Await CompressableFolderFactory.CreateCompressableFolder(folderPath)
-
     End Function
 
 
