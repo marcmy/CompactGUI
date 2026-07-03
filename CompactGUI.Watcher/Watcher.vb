@@ -24,6 +24,9 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
     Private ReadOnly _DataFolder As IO.DirectoryInfo
     Private ReadOnly _parseWatchersSemaphore As New SemaphoreSlim(1, 1)
+    Private ReadOnly _runWatcherSemaphore As New SemaphoreSlim(1, 1)
+    Private _runCancellationTokenSource As CancellationTokenSource
+    Private ReadOnly _runCancellationLock As New Object
 
     Private ReadOnly _logger As ILogger(Of Watcher)
     Private ReadOnly _settingsService As ISettingsService
@@ -82,6 +85,8 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         Dim bgMode = _settingsService.AppSettings.BackgroundModeSelection
         If bgMode <> BackgroundMode.IdleOnly Then Return
 
+        'An existing run may have been paused when the user became active.
+        'Always resume it before attempting to start another run.
         BGCompactor.ResumeCompacting()
 
         Await RunWatcher(False)
@@ -93,15 +98,22 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
     <ObservableProperty> Private _isRunning As Boolean = False
 
     Public Async Function RunWatcher(Optional runAll As Boolean = True, Optional cToken As CancellationToken = Nothing) As Task(Of Boolean)
-        RemoveHandler _idleDetector.IsIdle, _idleHandler
+        Dim acquired = Await _runWatcherSemaphore.WaitAsync(0)
+        If Not acquired Then Return False
 
+        Dim ownedCancellation = New CancellationTokenSource()
+        Dim linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cToken, ownedCancellation.Token)
+        Dim runToken = linkedCancellation.Token
+
+        SyncLock _runCancellationLock
+            _runCancellationTokenSource = ownedCancellation
+        End SyncLock
         IsRunning = True
 
-        For Each watcher In WatchedFolders
-            watcher.PauseMonitoring()
-        Next
-
         Try
+            For Each watcher In WatchedFolders
+                watcher.PauseMonitoring()
+            Next
 
             _settingsService.AppSettings.ScheduledBackgroundLastRan = DateTime.Now
             If Not IsWatchingEnabled Then Return False
@@ -109,33 +121,57 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             If Not runAll AndAlso WatchedFolders.Any(Function(x) x.LastChangedDate > recentThresholdDate) Then Return False
 
             If _parseWatchersSemaphore.CurrentCount <> 0 Then
-                Await ParseWatchers(runAll, cToken)
+                Await ParseWatchers(runAll, runToken)
             End If
-            If cToken <> Nothing AndAlso cToken.IsCancellationRequested Then
+            If runToken.IsCancellationRequested Then
                 _logger.LogInformation("Watcher run cancelled by user.")
                 Return False
             End If
             If _parseWatchersSemaphore.CurrentCount <> 0 AndAlso (IsBackgroundCompactingEnabled OrElse runAll) Then
-                Await BackgroundCompact(runAll) 'Don't need to pass the cancellation token here, as the background compactor handles it internally.
+                Await BackgroundCompact(runAll) 'The background compactor manages its own cancellation token.
             End If
-            If cToken <> Nothing AndAlso cToken.IsCancellationRequested Then
+            If runToken.IsCancellationRequested Then
                 _logger.LogInformation("Watcher run cancelled by user.")
                 Return False
             End If
             Return True
 
-        Catch ex As TaskCanceledException
+        Catch ex As OperationCanceledException
             Return False
         Finally
-
-            AddHandler _idleDetector.IsIdle, _idleHandler
             For Each watcher In WatchedFolders
                 watcher.ResumeMonitoring()
             Next
+
+            SyncLock _runCancellationLock
+                If Object.ReferenceEquals(_runCancellationTokenSource, ownedCancellation) Then
+                    _runCancellationTokenSource = Nothing
+                End If
+            End SyncLock
+
+            linkedCancellation.Dispose()
+            ownedCancellation.Dispose()
             IsRunning = False
+            _runWatcherSemaphore.Release()
         End Try
         Return False
     End Function
+
+    Public Sub CancelCurrentRun()
+        Dim cancellation As CancellationTokenSource
+
+        SyncLock _runCancellationLock
+            cancellation = _runCancellationTokenSource
+        End SyncLock
+
+        Try
+            cancellation?.Cancel()
+        Catch ex As ObjectDisposedException
+            'The run completed between retrieving and cancelling its token source.
+        End Try
+
+        BGCompactor.CancelCompacting()
+    End Sub
 
 
 
@@ -161,7 +197,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             If _disableCounter = 1 Then
                 WatcherLog.BackgroundingDisabled(_logger)
                 Await _idleDetector.StopAsync()
-                BGCompactor.CancelCompacting()
+                CancelCurrentRun()
                 Await _parseWatchersSemaphore.WaitAsync()
             End If
         Finally
@@ -502,5 +538,3 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
 
 End Class
-
-

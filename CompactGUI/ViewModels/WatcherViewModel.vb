@@ -28,7 +28,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
     <RelayCommand>
     Public Sub CancelBackgrounding()
         RunWatcherCommand.Cancel()
-        Watcher.BGCompactor.CancelCompacting()
+        Watcher.CancelCurrentRun()
         Application.Current.Dispatcher.Invoke(Sub() CancelBackgroundingCommand.NotifyCanExecuteChanged())
     End Sub
 

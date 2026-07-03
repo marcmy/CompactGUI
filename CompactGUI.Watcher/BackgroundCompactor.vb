@@ -21,7 +21,7 @@ Public Class BackgroundCompactor
         End Set
     End Property
 
-    Private cancellationTokenSource As New CancellationTokenSource()
+    Private cancellationTokenSource As CancellationTokenSource
     Private isCompacting As Boolean = False
     Private isCompactingPaused As Boolean = False ' Track if compacting is paused
 
@@ -52,64 +52,98 @@ Public Class BackgroundCompactor
 
     End Function
 
+
     Public Async Function StartCompactingAsync(folders As IEnumerable(Of WatchedFolder)) As Task(Of Boolean)
-        WatcherLog.BackgroundCompactingStarted(_logger)
+        If IsCompactorActive Then Return False
+
+        cancellationTokenSource?.Dispose()
         cancellationTokenSource = New CancellationTokenSource()
 
+        WatcherLog.BackgroundCompactingStarted(_logger)
         IsCompactorActive = True
+        isCompacting = True
+        isCompactingPaused = False
 
         Dim currentProcess As Process = Process.GetCurrentProcess()
-        currentProcess.PriorityClass = ProcessPriorityClass.Idle
 
-        isCompacting = True
+        Try
+            currentProcess.PriorityClass = ProcessPriorityClass.Idle
 
-        For Each folder In folders.ToList
-            folder.IsWorking = True
+            For Each folder In folders.ToList
+                If cancellationTokenSource.IsCancellationRequested Then Return False
 
-            WatcherLog.CompactingFolder(_logger, folder.DisplayName)
-            Dim compactingTask = BeginCompacting(folder.Folder, folder.CompressionLevel)
+                folder.IsWorking = True
 
+                Try
+                    WatcherLog.CompactingFolder(_logger, folder.DisplayName)
+                    Dim compactingTask = BeginCompacting(folder.Folder, folder.CompressionLevel)
 
-            If cancellationTokenSource.IsCancellationRequested Then
-                Trace.WriteLine("Compacting cancelled by user.")
-                folder.IsWorking = False
-                IsCompactorActive = False
-                isCompacting = False ' Ensure compacting status is reset after operation
-                _compactor.Dispose()
-                Return False
-            End If
+                    'Cancellation can arrive between selecting the folder and creating its compactor.
+                    If cancellationTokenSource.IsCancellationRequested Then
+                        _compactor?.Cancel()
+                    End If
 
-            Dim result = Await compactingTask
-            If result AndAlso folders.Contains(folder) Then
-                ' Ensure the folder is still in the original collection before updating
+                    Dim result = Await compactingTask
 
-                Dim analyser As New Core.Analyser(folder.Folder, NullLogger(Of Core.Analyser).Instance)
+                    If cancellationTokenSource.IsCancellationRequested OrElse Not result Then
+                        Trace.WriteLine("Compacting cancelled by user.")
+                        Return False
+                    End If
 
-                Dim analysed = Await analyser.GetAnalysedFilesAsync(Nothing)
+                    If folders.Contains(folder) Then
+                        'Ensure the folder is still in the original collection before updating.
+                        Using analyser As New Core.Analyser(folder.Folder, NullLogger(Of Core.Analyser).Instance)
+                            Dim analysed = Await analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token)
 
-                folder.LastCheckedDate = DateTime.Now
-                folder.LastCheckedSize = analyser.CompressedBytes
-                folder.LastCompressedSize = analyser.CompressedBytes
-                folder.LastSystemModifiedDate = DateTime.Now
-                Dim mainCompressionLVL = analysed.Select(Function(f) f.CompressionMode).Max
-                folder.CompressionLevel = mainCompressionLVL
+                            If cancellationTokenSource.IsCancellationRequested Then Return False
 
-                folder.LastCompressedDate = DateTime.Now
+                            folder.LastCheckedDate = DateTime.Now
+                            folder.LastCheckedSize = analyser.CompressedBytes
+                            folder.LastCompressedSize = analyser.CompressedBytes
+                            folder.LastSystemModifiedDate = DateTime.Now
 
-                folder.HasTargetChanged = False
+                            If analysed IsNot Nothing AndAlso analysed.Count > 0 Then
+                                folder.CompressionLevel = analysed.Select(Function(f) f.CompressionMode).Max
+                            End If
 
-            End If
-            folder.IsWorking = False
-            folder.RefreshProperties()
-            _compactor.Dispose()
-            WatcherLog.FinishedCompactingFolder(_logger, folder.DisplayName)
-        Next
+                            folder.LastCompressedDate = DateTime.Now
+                            folder.HasTargetChanged = False
+                        End Using
+                    End If
 
-        IsCompactorActive = False
-        isCompacting = False ' Ensure compacting status is reset after operation
-        WatcherLog.BackgroundCompactingFinished(_logger)
-        currentProcess.PriorityClass = ProcessPriorityClass.Normal
-        Return True
+                    folder.RefreshProperties()
+                    WatcherLog.FinishedCompactingFolder(_logger, folder.DisplayName)
+                Finally
+                    folder.IsWorking = False
+                    _compactor?.Dispose()
+                    _compactor = Nothing
+                End Try
+            Next
+
+            WatcherLog.BackgroundCompactingFinished(_logger)
+            Return True
+        Catch ex As OperationCanceledException
+            Trace.WriteLine("Compacting cancelled by user.")
+            Return False
+        Finally
+            'The worker that created the compactor owns its disposal. CancelCompacting
+            'only signals cancellation so native WOF calls cannot race freed state.
+            isCompacting = False
+            isCompactingPaused = False
+            IsCompactorActive = False
+
+            _compactor?.Dispose()
+            _compactor = Nothing
+
+            cancellationTokenSource?.Dispose()
+            cancellationTokenSource = Nothing
+
+            Try
+                currentProcess.PriorityClass = ProcessPriorityClass.Normal
+            Catch ex As Exception
+                _logger.LogDebug(ex, "Unable to restore CompactGUI process priority.")
+            End Try
+        End Try
     End Function
 
     Public Sub PauseCompacting()
@@ -136,12 +170,10 @@ Public Class BackgroundCompactor
         If Not isCompacting Then
             Return
         End If
+
         Debug.WriteLine("Cancelling background compactor...")
-        cancellationTokenSource.Cancel()
-        cancellationTokenSource.Dispose()
+        cancellationTokenSource?.Cancel()
         _compactor?.Cancel()
-        _compactor?.Dispose()
-        isCompacting = False
         isCompactingPaused = False ' Reset pause state on cancellation
     End Sub
 
