@@ -91,7 +91,6 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
     End Function
 
 
-
     Public Async Function AddFolderAsync(folderPath As String) As Task(Of CompressableFolder)
 
         If GetInvalidFolders({folderPath}).InvalidFolders.Count > 0 Then
