@@ -17,6 +17,6 @@ jobs:
         with:
           dotnet-version: 9.0.x
       - name: Restore
-        run: dotnet restore CompactGUI.slnx
+        run: dotnet restore CompactGUI/CompactGUI.vbproj
       - name: Build
-        run: dotnet build CompactGUI.slnx --configuration Release --no-restore
+        run: dotnet build CompactGUI/CompactGUI.vbproj --configuration Release --no-restore
