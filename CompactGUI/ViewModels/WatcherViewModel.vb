@@ -52,7 +52,6 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
 
 
 
-
     <RelayCommand>
     Private Sub AddWatchedFolderToQueue(folder As Watcher.WatchedFolder)
 
@@ -102,6 +101,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
         End If
 
         Return Await CompressableFolderFactory.CreateCompressableFolder(folderPath)
+
     End Function
 
 
