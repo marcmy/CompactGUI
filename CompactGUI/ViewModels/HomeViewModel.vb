@@ -251,7 +251,8 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
                                    End If
 
-                                   _watcher.UpdateWatched(folder.FolderName, folder.Analyser, True)
+                                   Dim targetCompressionLevel = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
+                                   Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, ret, targetCompressionLevel:=targetCompressionLevel)
 
                                    'For Each poorext In folder.PoorlyCompressedFiles
                                    '    Debug.WriteLine($"{poorext.extension} : {poorext.totalFiles} with ratio of {poorext.cRatio}")
@@ -264,7 +265,8 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         Compressing = False
 
         For Each folder In Folders.Where(Function(f) f.CompressionOptions.WatchFolderForChanges)
-            AddOrUpdateFolderWatcher(folder)
+            Dim wasCompressedInCurrentBatch = foldersToCompress.Contains(folder) AndAlso folder.IsFreshlyCompressed
+            AddOrUpdateFolderWatcher(folder, wasCompressedInCurrentBatch)
         Next
 
         RemoveFolderCommand.NotifyCanExecuteChanged()
@@ -278,7 +280,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
     End Function
 
 
-    Public Sub AddOrUpdateFolderWatcher(folder As CompressableFolder)
+    Public Sub AddOrUpdateFolderWatcher(folder As CompressableFolder, wasCompressedInCurrentBatch As Boolean)
         HomeViewModelLog.AddingFolderToWatcher(_logger, folder.FolderName)
 
         Dim newWatched = New Watcher.WatchedFolder(folder.FolderName, folder.DisplayName)
@@ -289,7 +291,14 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         newWatched.LastCheckedDate = DateTime.Now
         newWatched.LastCheckedSize = folder.CompressedBytes
         newWatched.LastSystemModifiedDate = DateTime.Now
-        newWatched.CompressionLevel = If(folder.AnalysisResults.Any(), folder.AnalysisResults.Max(Function(f) f.CompressionMode), Core.WOFCompressionAlgorithm.NO_COMPRESSION)
+        Dim existingWatched = _watcher.WatchedFolders.FirstOrDefault(Function(w) w.Folder = folder.FolderName)
+        If wasCompressedInCurrentBatch Then
+            newWatched.CompressionLevel = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
+        ElseIf existingWatched IsNot Nothing Then
+            newWatched.CompressionLevel = existingWatched.CompressionLevel
+        Else
+            newWatched.CompressionLevel = Core.WOFHelper.GetDominantCompressionMode(folder.AnalysisResults)
+        End If
 
         _watcher.AddOrUpdateWatched(newWatched)
 

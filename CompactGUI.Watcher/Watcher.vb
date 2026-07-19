@@ -288,8 +288,10 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             existingItem.LastCheckedSize = analyser.CompressedBytes
             existingItem.LastUncompressedSize = analyser.UncompressedBytes
             existingItem.LastSystemModifiedDate = DateTime.Now
-            If analysedFiles?.Count <> 0 Then
-                existingItem.CompressionLevel = analysedFiles.Select(Function(f) f.CompressionMode).Max
+            If isFreshlyCompressed AndAlso targetCompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION Then
+                existingItem.CompressionLevel = targetCompressionLevel
+            Else
+                existingItem.CompressionLevel = WOFHelper.GetDominantCompressionMode(analysedFiles)
             End If
 
             If isFreshlyCompressed Then
@@ -304,7 +306,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             OnPropertyChanged(NameOf(TotalSaved))
             If immediateFlushToDisk Then WriteToFile()
         End If
-    End Sub
+    End Function
 
     Private Sub UpdateFolderProperties(existingItem As WatchedFolder, newItem As WatchedFolder)
         With existingItem
@@ -500,8 +502,9 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
                 watched.LastSystemModifiedDate = watched.LastChangedDate
 
                 If analysedFiles?.Count <> 0 Then
-                    Dim mainCompressionLVL = analysedFiles.Select(Function(f) f.CompressionMode).Max
-                    watched.CompressionLevel = If(mainCompressionLVL <> WOFCompressionAlgorithm.NO_COMPRESSION, mainCompressionLVL, watched.CompressionLevel)
+                    If watched.CompressionLevel = WOFCompressionAlgorithm.NO_COMPRESSION Then
+                        watched.CompressionLevel = WOFHelper.GetDominantCompressionMode(analysedFiles)
+                    End If
 
                     If checkDiskModified Then
                         Dim lastDiskWriteTime = analysedFiles.Select(Function(fl)

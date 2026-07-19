@@ -148,7 +148,7 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
     <RelayCommand>
     Private Async Function Uncompress() As Task
         Await _compressableFolderService.UncompressFolder(Folder)
-        _watcher.UpdateWatched(Folder.FolderName, Folder.Analyser, False)
+        Await _watcher.UpdateWatched(Folder.FolderName, Folder.Analyser, False)
     End Function
 
     <RelayCommand>
