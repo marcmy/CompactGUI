@@ -50,7 +50,8 @@ public sealed class Compactor : ICompressor, IDisposable
 
     }
 
-    public async Task<bool> RunAsync(List<string> filesList, IProgress<CompressionProgress> progressMonitor = null, int maxParallelism = 1)
+
+    public async Task<bool> RunAsync(List<string> filesList, IProgress<CompressionProgress>? progressMonitor = null, int maxParallelism = 1)
     {
         if(cancellationTokenSource.IsCancellationRequested) { return false; }
 
@@ -92,7 +93,7 @@ public sealed class Compactor : ICompressor, IDisposable
         return true;
     }
 
-    private async Task PauseAndProcessFile(FileDetails file, long totalFilesSize, CancellationToken token, IProgress<CompressionProgress> progressMonitor)
+    private async Task PauseAndProcessFile(FileDetails file, long totalFilesSize, CancellationToken token, IProgress<CompressionProgress>? progressMonitor)
     {
         CompactorLog.ProcessingFile(_logger, file.FileName, file.UncompressedSize);
 
@@ -126,9 +127,9 @@ public sealed class Compactor : ICompressor, IDisposable
         uint clusterSize = SharedMethods.GetClusterSize(workingDirectory);
 
         
-        var analysedFiles = await _analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token);
+        var analysedFiles = await _analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token) ?? [];
 
-        var filesList = analysedFiles?
+        return analysedFiles
             .Where(fl =>
                 fl.CompressionMode != wofCompressionAlgorithm
                 && fl.UncompressedSize > clusterSize
@@ -136,9 +137,8 @@ public sealed class Compactor : ICompressor, IDisposable
             )
             .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize))
             .ToList();
-
-        return filesList;
     }
+
 
 
 
@@ -177,6 +177,5 @@ public sealed class Compactor : ICompressor, IDisposable
 
 
     public readonly record struct FileDetails(string FileName, long UncompressedSize);
-
 
 }

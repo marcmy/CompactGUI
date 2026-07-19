@@ -183,10 +183,11 @@ public static class SharedMethods
             DirectoryInfo dirInfo = new DirectoryInfo(folderName);
             DirectorySecurity dirSecurity = dirInfo.GetAccessControl();
 
-            var user = WindowsIdentity.GetCurrent();
-            var userSID = user.User;
-            var userGroupSIDs = user.Groups;
+            using WindowsIdentity user = WindowsIdentity.GetCurrent();
+            SecurityIdentifier? userSID = user.User;
+            if (userSID is null) return false;
 
+            IdentityReferenceCollection? userGroupSIDs = user.Groups;
             var rules = dirSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
 
             bool writeAllowed = false;
@@ -194,11 +195,12 @@ public static class SharedMethods
 
             foreach (FileSystemAccessRule rule in rules)
             {
-                var fileSystemRights = rule.FileSystemRights;
-
                 if (!rule.FileSystemRights.HasFlag(FileSystemRights.Write)) continue;
                 if (rule.IdentityReference is not SecurityIdentifier ruleSID) continue;
-                if (!ruleSID.Equals(userSID) && !userGroupSIDs.Contains(ruleSID)) continue;
+
+                bool belongsToUser = ruleSID.Equals(userSID);
+                bool belongsToGroup = userGroupSIDs?.Contains(ruleSID) == true;
+                if (!belongsToUser && !belongsToGroup) continue;
 
                 if (rule.AccessControlType == AccessControlType.Deny)
                 {

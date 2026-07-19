@@ -27,6 +27,9 @@ Public Class WatchedFolder
     <AttachAttribute(GetType(JsonIgnoreAttribute))>
     <ObservableProperty> Private _IsEditing As Boolean = False
 
+    <AttachAttribute(GetType(JsonIgnoreAttribute))>
+    <ObservableProperty> Private _IsAvailable As Boolean = True
+
     ' --- Monitoring State ---
     <AttachAttribute(GetType(JsonIgnoreAttribute))>
     <ObservableProperty> Private _HasTargetChanged As Boolean = False
@@ -39,6 +42,7 @@ Public Class WatchedFolder
     Private WithEvents FSWatcher As FileSystemWatcher
 
     Private debounceTimer As Timer
+    Private isMonitoringPaused As Boolean
 
     Private disposedValue As Boolean
 
@@ -52,46 +56,124 @@ Public Class WatchedFolder
     Public Sub New()
     End Sub
 
-    Public Sub InitializeMonitoring()
-        If FSWatcher Is Nothing Then
-            FSWatcher = New FileSystemWatcher(Folder) With {
-            .NotifyFilter = NotifyFilters.Size Or NotifyFilters.CreationTime Or NotifyFilters.LastWrite Or NotifyFilters.FileName,
-            .IncludeSubdirectories = True,
-            .Filter = "",
-            .EnableRaisingEvents = True
-        }
-            debounceTimer = New Timer(AddressOf DebounceTimerCallback, Nothing, Timeout.Infinite, Timeout.Infinite)
+    Public Function InitializeMonitoring() As Boolean
+        If disposedValue Then Return False
+
+        If String.IsNullOrWhiteSpace(Folder) OrElse Not Directory.Exists(Folder) Then
+            MarkUnavailable()
+            Return False
         End If
-    End Sub
+
+        Try
+            If FSWatcher Is Nothing Then
+                FSWatcher = New FileSystemWatcher(Folder) With {
+                    .NotifyFilter = NotifyFilters.Size Or NotifyFilters.CreationTime Or NotifyFilters.LastWrite Or NotifyFilters.FileName,
+                    .IncludeSubdirectories = True,
+                    .Filter = "",
+                    .EnableRaisingEvents = Not isMonitoringPaused
+                }
+                debounceTimer = New Timer(AddressOf DebounceTimerCallback, Nothing, Timeout.Infinite, Timeout.Infinite)
+            Else
+                FSWatcher.EnableRaisingEvents = Not isMonitoringPaused
+            End If
+
+            IsAvailable = True
+            Return True
+        Catch ex As Exception When TypeOf ex Is IOException OrElse TypeOf ex Is UnauthorizedAccessException OrElse TypeOf ex Is ArgumentException
+            Debug.WriteLine($"Unable to monitor folder {Folder}: {ex.Message}")
+            MarkUnavailable()
+            Return False
+        End Try
+    End Function
+
+    Public Function RefreshAvailability() As Boolean
+        Dim wasAvailable = IsAvailable
+
+        If Not InitializeMonitoring() Then Return False
+
+        If Not wasAvailable Then
+            HasTargetChanged = True
+            LastChangedDate = DateTime.Now
+        End If
+
+        Return True
+    End Function
 
     Public Sub PauseMonitoring()
-        If FSWatcher IsNot Nothing Then
-            FSWatcher.EnableRaisingEvents = False
+        isMonitoringPaused = True
+
+        If Not IsAvailable OrElse FSWatcher Is Nothing Then Return
+
+        If Not Directory.Exists(Folder) Then
+            MarkUnavailable()
+            Return
         End If
+
+        Try
+            FSWatcher.EnableRaisingEvents = False
+        Catch ex As Exception When TypeOf ex Is IOException OrElse TypeOf ex Is ObjectDisposedException
+            MarkUnavailable()
+        End Try
     End Sub
 
     Public Sub ResumeMonitoring()
-        If FSWatcher IsNot Nothing Then
+        isMonitoringPaused = False
+        If Not RefreshAvailability() Then Return
+
+        Try
             FSWatcher.EnableRaisingEvents = True
-        End If
+        Catch ex As Exception When TypeOf ex Is IOException OrElse TypeOf ex Is ObjectDisposedException
+            MarkUnavailable()
+        End Try
     End Sub
 
     ' --- Monitoring Events ---
     Private Sub WatcherErrorEvent(sender As Object, e As ErrorEventArgs) Handles FSWatcher.Error
         Debug.WriteLine(e.GetException.Message)
+
+        If Not Directory.Exists(Folder) Then
+            MarkUnavailable()
+        End If
     End Sub
 
     Private Sub WatcherModifiedEvent(sender As Object, e As FileSystemEventArgs) Handles FSWatcher.Created, FSWatcher.Changed, FSWatcher.Renamed, FSWatcher.Deleted
-        debounceTimer.Change(1000, Timeout.Infinite)
+        debounceTimer?.Change(1000, Timeout.Infinite)
     End Sub
 
     Private Sub DebounceTimerCallback(state As Object)
+        If Not Directory.Exists(Folder) Then
+            MarkUnavailable()
+            Return
+        End If
+
         HasTargetChanged = True
         LastChangedDate = DateTime.Now
         OnPropertyChanged(NameOf(HasTargetChanged))
         OnPropertyChanged(NameOf(LastChangedDate))
         OnPropertyChanged(NameOf(LastSystemModifiedDate))
         Debug.WriteLine("Folder " & Folder & " has changed!")
+    End Sub
+
+    Private Sub MarkUnavailable()
+        IsAvailable = False
+        IsWorking = False
+        StopMonitoring()
+    End Sub
+
+    Private Sub StopMonitoring()
+        Try
+            FSWatcher?.Dispose()
+        Catch ex As ObjectDisposedException
+        Finally
+            FSWatcher = Nothing
+        End Try
+
+        Try
+            debounceTimer?.Dispose()
+        Catch ex As ObjectDisposedException
+        Finally
+            debounceTimer = Nothing
+        End Try
     End Sub
 
     ' --- Calculated Properties ---
@@ -119,8 +201,7 @@ Public Class WatchedFolder
     Protected Overridable Sub Dispose(disposing As Boolean)
         If Not disposedValue Then
             If disposing Then
-                FSWatcher?.Dispose()
-                debounceTimer?.Dispose()
+                StopMonitoring()
             End If
             disposedValue = True
         End If

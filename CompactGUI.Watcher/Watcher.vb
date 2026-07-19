@@ -69,7 +69,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         BGCompactor = New BackgroundCompactor(Array.Empty(Of String), _logger)
 
 
-        InitializeWatchedFoldersAsync()
+        BeginInitializeWatchedFolders()
 
 
     End Sub
@@ -118,7 +118,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             _settingsService.AppSettings.ScheduledBackgroundLastRan = DateTime.Now
             If Not IsWatchingEnabled Then Return False
             Dim recentThresholdDate As DateTime = DateTime.Now.AddSeconds(-IdleSettings.LastSystemModifiedTimeThresholdSeconds)
-            If Not runAll AndAlso WatchedFolders.Any(Function(x) x.LastChangedDate > recentThresholdDate) Then Return False
+            If Not runAll AndAlso WatchedFolders.Any(Function(x) x.IsAvailable AndAlso x.LastChangedDate > recentThresholdDate) Then Return False
 
             If _parseWatchersSemaphore.CurrentCount <> 0 Then
                 Await ParseWatchers(runAll, runToken)
@@ -227,6 +227,14 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         OnPropertyChanged(NameOf(TotalSaved))
     End Sub
 
+    Private Async Sub BeginInitializeWatchedFolders()
+        Try
+            Await InitializeWatchedFoldersAsync()
+        Catch ex As Exception
+            _logger.LogError(ex, "Unable to initialize watched folders.")
+        End Try
+    End Sub
+
     Private Async Function InitializeWatchedFoldersAsync() As Task
         Dim initialWatchedFolders = Await GetWatchedFoldersFromJson()
 
@@ -234,7 +242,8 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
         WatchedFolders.Clear()
 
-        For Each folder In initialWatchedFolders.Where(Function(f) IO.Directory.Exists(f.Folder))
+        For Each folder In initialWatchedFolders
+            folder.RefreshAvailability()
             WatchedFolders.Add(folder)
             folder.LastChangedDate = folder.LastSystemModifiedDate
         Next
@@ -311,6 +320,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             .CompressionLevel = If(newItem.CompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION, newItem.CompressionLevel, existingItem.CompressionLevel)
         End With
         existingItem.HasTargetChanged = False
+        existingItem.RefreshAvailability()
     End Sub
 
     Public Async Function RemoveWatched(item As WatchedFolder, Optional writeToFile As Boolean = True) As Task
@@ -322,18 +332,11 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
     End Function
 
 
-    Public Async Function DeleteWatchersWithNonExistentFolders() As Task
-
-        For i As Integer = WatchedFolders.Count - 1 To 0 Step -1
-            If Not IO.Directory.Exists(WatchedFolders(i).Folder) Then
-                WatcherLog.RemovingNonexistentFolders(_logger, 1)
-                Await RemoveWatched(WatchedFolders(i), False)
-            End If
+    Public Sub RefreshWatchedFolderAvailability()
+        For Each watchedFolder In WatchedFolders
+            watchedFolder.RefreshAvailability()
         Next
-
-        Await WriteToFileAsync()
-
-    End Function
+    End Sub
 
 
     Private Async Function GetWatchedFoldersFromJson() As Task(Of ObservableCollection(Of WatchedFolder))
@@ -362,8 +365,8 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             validatedResult = JsonSerializer.Deserialize(Of (DateTime, ObservableCollection(Of WatchedFolder)))(WatcherJSON, DeserializeOptions)
 
             If validatedResult.Item2 IsNot Nothing Then
-                For Each folder In validatedResult.Item2.Where(Function(f) IO.Directory.Exists(f.Folder))
-                    folder.InitializeMonitoring()
+                For Each folder In validatedResult.Item2
+                    folder.RefreshAvailability()
                 Next
             End If
 
@@ -397,16 +400,19 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
         Try
             WatcherLog.ParsingWatchers(_logger, ParseAll)
-            Await DeleteWatchersWithNonExistentFolders()
+            RefreshWatchedFolderAvailability()
 
+            Dim availableFolders = WatchedFolders.Where(Function(w) w.IsAvailable)
             Dim WatchersQuery = If(ParseAll,
-                    WatchedFolders,
-                    WatchedFolders.Where(Function(w) w.HasTargetChanged)
+                    availableFolders,
+                    availableFolders.Where(Function(w) w.HasTargetChanged)
                     ).OrderBy(Function(f) f.DisplayName)
 
             If Not WatchersQuery.Any() Then Return
 
             For Each fsWatcher In WatchersQuery
+                If Not fsWatcher.RefreshAvailability() Then Continue For
+
                 WatcherLog.FolderChanged(_logger, fsWatcher.DisplayName)
                 If cToken <> Nothing AndAlso cToken.IsCancellationRequested Then Return
                 Await Analyse(fsWatcher.Folder, ParseAll, cToken)
@@ -429,11 +435,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         If Not acquired Then Return
 
         Try
-            If watchedFolder Is Nothing Then Return
-            If Not IO.Directory.Exists(watchedFolder.Folder) Then
-                Await RemoveWatched(watchedFolder)
-                Return
-            End If
+            If watchedFolder Is Nothing OrElse Not watchedFolder.RefreshAvailability() Then Return
 
             Await Analyse(watchedFolder.Folder, False)
             LastAnalysed = DateTime.Now
@@ -454,11 +456,12 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
             If BGCompactor.IsCompactorActive Then Return
 
+            RefreshWatchedFolderAvailability()
             Dim recentThresholdDate As DateTime = DateTime.Now.AddSeconds(-IdleSettings.LastSystemModifiedTimeThresholdSeconds)
 
             Dim foldersToCompress = WatchedFolders.
                 Where(Function(folder)
-                          Dim eligible = folder.DecayPercentage <> 0 AndAlso folder.CompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION
+                          Dim eligible = folder.IsAvailable AndAlso folder.DecayPercentage <> 0 AndAlso folder.CompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION
                           Dim recentlyModified = folder.LastSystemModifiedDate > recentThresholdDate AndAlso Not runAll
                           If eligible AndAlso recentlyModified Then
                               WatcherLog.SkippingRecentlyModifiedFolder(_logger, folder.DisplayName)
@@ -480,11 +483,13 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
 
     Public Async Function Analyse(folder As String, checkDiskModified As Boolean, Optional cToken As CancellationToken = Nothing) As Task(Of Boolean)
+        Dim watched = WatchedFolders.FirstOrDefault(Function(f) f.Folder = folder)
+        If watched Is Nothing OrElse Not watched.RefreshAvailability() Then Return False
 
-        Using analyser As New Analyser(folder, NullLogger(Of Analyser).Instance)
-            Dim watched = WatchedFolders.First(Function(f) f.Folder = folder)
-            watched.IsWorking = True
-            Try
+        watched.IsWorking = True
+
+        Try
+            Using analyser As New Analyser(folder, NullLogger(Of Analyser).Instance)
                 Dim analysedFiles = Await analyser.GetAnalysedFilesAsync(cToken)
                 If cToken <> Nothing AndAlso cToken.IsCancellationRequested Then Return False
 
@@ -494,8 +499,8 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
                 watched.LastSystemModifiedDate = watched.LastChangedDate
 
-                If analysedFiles.Count <> 0 Then
-                    Dim mainCompressionLVL = analysedFiles?.Select(Function(f) f.CompressionMode).Max
+                If analysedFiles?.Count <> 0 Then
+                    Dim mainCompressionLVL = analysedFiles.Select(Function(f) f.CompressionMode).Max
                     watched.CompressionLevel = If(mainCompressionLVL <> WOFCompressionAlgorithm.NO_COMPRESSION, mainCompressionLVL, watched.CompressionLevel)
 
                     If checkDiskModified Then
@@ -510,17 +515,18 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
                 End If
 
                 watched.HasTargetChanged = False
-            Catch ex As OperationCanceledException
-                Return False
-            Finally
+            End Using
+        Catch ex As OperationCanceledException
+            Return False
+        Catch ex As Exception When TypeOf ex Is IO.IOException OrElse TypeOf ex Is UnauthorizedAccessException
+            watched.RefreshAvailability()
+            _logger.LogDebug(ex, "Unable to analyse watched folder {Folder}.", folder)
+            Return False
+        Finally
+            watched.IsWorking = False
+        End Try
 
-                watched.IsWorking = False
-            End Try
-
-            Return True
-
-        End Using
-
+        Return True
     End Function
 
     Public Sub Receive(message As PropertyChangedMessage(Of Boolean)) Implements IRecipient(Of PropertyChangedMessage(Of Boolean)).Receive
@@ -532,7 +538,6 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
 
     End Sub
-
 
 
 
