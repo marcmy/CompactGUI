@@ -47,6 +47,46 @@ public static class WOFHelper
         };
     }
 
+    // Native WOF values are API identifiers, not an ordering by compression strength.
+    public static WOFCompressionAlgorithm GetDominantCompressionMode(
+        IEnumerable<AnalysedFileDetails>? analysedFiles,
+        WOFCompressionAlgorithm fallback = WOFCompressionAlgorithm.NO_COMPRESSION)
+    {
+        if (analysedFiles is null) return fallback;
+
+        var dominant = analysedFiles
+            .Where(file => file.CompressionMode is
+                WOFCompressionAlgorithm.XPRESS4K or
+                WOFCompressionAlgorithm.XPRESS8K or
+                WOFCompressionAlgorithm.XPRESS16K or
+                WOFCompressionAlgorithm.LZX)
+            .GroupBy(file => file.CompressionMode)
+            .Select(group => new
+            {
+                Mode = group.Key,
+                UncompressedBytes = group.Sum(file => file.UncompressedSize),
+                FileCount = group.Count()
+            })
+            .OrderByDescending(group => group.FileCount)
+            .ThenByDescending(group => group.UncompressedBytes)
+            .ThenByDescending(group => GetCompressionStrength(group.Mode))
+            .FirstOrDefault();
+
+        return dominant?.Mode ?? fallback;
+    }
+
+    private static int GetCompressionStrength(WOFCompressionAlgorithm mode)
+    {
+        return mode switch
+        {
+            WOFCompressionAlgorithm.XPRESS4K => 0,
+            WOFCompressionAlgorithm.XPRESS8K => 1,
+            WOFCompressionAlgorithm.XPRESS16K => 2,
+            WOFCompressionAlgorithm.LZX => 3,
+            _ => -1
+        };
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct WOF_FILE_COMPRESSION_INFO_V1
     {
