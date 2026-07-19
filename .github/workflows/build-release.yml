@@ -113,15 +113,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload watcher source for warning cleanup
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: CompactGUI-watcher-source
-          path: CompactGUI.Watcher/Watcher.vb
-          if-no-files-found: error
-          retention-days: 1
-
   release:
     name: Publish GitHub release
     needs: build
