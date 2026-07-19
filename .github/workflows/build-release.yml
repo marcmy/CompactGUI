@@ -62,7 +62,8 @@ jobs:
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=None `
-            -p:DebugSymbols=false
+            -p:DebugSymbols=false `
+            -p:TreatWarningsAsErrors=true
 
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
@@ -111,6 +112,15 @@ jobs:
           path: ${{ runner.temp }}/compactgui-artifacts/*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload watcher source for warning cleanup
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: CompactGUI-watcher-source
+          path: CompactGUI.Watcher/Watcher.vb
+          if-no-files-found: error
+          retention-days: 1
 
   release:
     name: Publish GitHub release
