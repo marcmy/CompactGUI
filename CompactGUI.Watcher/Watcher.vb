@@ -69,7 +69,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         BGCompactor = New BackgroundCompactor(Array.Empty(Of String), _logger)
 
 
-        InitializeWatchedFoldersAsync()
+        BeginInitializeWatchedFolders()
 
 
     End Sub
@@ -225,6 +225,14 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
     Private Sub WatchedFolders_CollectionChanged(sender As Object, e As NotifyCollectionChangedEventArgs)
         OnPropertyChanged(NameOf(TotalSaved))
+    End Sub
+
+    Private Async Sub BeginInitializeWatchedFolders()
+        Try
+            Await InitializeWatchedFoldersAsync()
+        Catch ex As Exception
+            _logger.LogError(ex, "Unable to initialize watched folders.")
+        End Try
     End Sub
 
     Private Async Function InitializeWatchedFoldersAsync() As Task
