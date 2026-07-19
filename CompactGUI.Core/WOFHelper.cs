@@ -47,6 +47,7 @@ public static class WOFHelper
         };
     }
 
+    // Native WOF values are API identifiers, not an ordering by compression strength.
     public static WOFCompressionAlgorithm GetDominantCompressionMode(
         IEnumerable<AnalysedFileDetails>? analysedFiles,
         WOFCompressionAlgorithm fallback = WOFCompressionAlgorithm.NO_COMPRESSION)
