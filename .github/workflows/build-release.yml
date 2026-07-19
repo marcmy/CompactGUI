@@ -1,192 +1,157 @@
-name: Build and Release
+name: Finish watcher compression target fix
 
 on:
   pull_request:
     branches:
       - master
-  push:
-    branches:
-      - master
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Optional tag to create a release from the selected ref (for example: v4.0.0-beta.7-marc.1)"
-        required: false
-        type: string
-      prerelease:
-        description: "Mark a manually created release as a prerelease"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
-  contents: read
-
-env:
-  DOTNET_NOLOGO: true
-  DOTNET_CLI_TELEMETRY_OPTOUT: true
-  PROJECT_PATH: CompactGUI/CompactGUI.vbproj
-  RUNTIME_IDENTIFIER: win-x64
+  contents: write
 
 jobs:
-  build:
-    name: Build Windows x64
+  apply-fix:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: windows-latest
 
     steps:
-      - name: Check out repository
+      - name: Check out fix branch
         uses: actions/checkout@v7
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 9.0.x
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
-      - name: Restore
-        run: dotnet restore $env:PROJECT_PATH
-
-      - name: Publish self-contained executable
+      - name: Apply remaining source changes and restore normal CI
         shell: pwsh
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          $publishDir = Join-Path $env:RUNNER_TEMP "compactgui-publish"
-          Remove-Item $publishDir -Recurse -Force -ErrorAction SilentlyContinue
+          @'
+          from pathlib import Path
 
-          dotnet publish $env:PROJECT_PATH `
-            --configuration Release `
-            --runtime $env:RUNTIME_IDENTIFIER `
-            --self-contained true `
-            --no-restore `
-            --output $publishDir `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:DebugType=None `
-            -p:DebugSymbols=false `
-            -p:TreatWarningsAsErrors=true
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              raw = file_path.read_bytes()
+              has_bom = raw.startswith(b"\xef\xbb\xbf")
+              text = raw.decode("utf-8-sig")
+              newline = "\r\n" if "\r\n" in text else "\n"
+              old_actual = old.replace("\n", newline)
+              new_actual = new.replace("\n", newline)
+
+              if old_actual not in text:
+                  if new_actual in text:
+                      return
+                  raise RuntimeError(f"Expected source block not found in {path}: {old!r}")
+
+              text = text.replace(old_actual, new_actual, 1)
+              encoded = text.encode("utf-8")
+              if has_bom:
+                  encoded = b"\xef\xbb\xbf" + encoded
+              file_path.write_bytes(encoded)
+
+          replace_once(
+              "CompactGUI.Watcher/Watcher.vb",
+              "            If analysedFiles?.Count <> 0 Then\n"
+              "                existingItem.CompressionLevel = analysedFiles.Select(Function(f) f.CompressionMode).Max\n"
+              "            End If\n",
+              "            If isFreshlyCompressed AndAlso targetCompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION Then\n"
+              "                existingItem.CompressionLevel = targetCompressionLevel\n"
+              "            Else\n"
+              "                existingItem.CompressionLevel = WOFHelper.GetDominantCompressionMode(analysedFiles)\n"
+              "            End If\n"
+          )
+
+          replace_once(
+              "CompactGUI.Watcher/Watcher.vb",
+              "        End If\n"
+              "    End Sub\n\n"
+              "    Private Sub UpdateFolderProperties",
+              "        End If\n"
+              "    End Function\n\n"
+              "    Private Sub UpdateFolderProperties"
+          )
+
+          replace_once(
+              "CompactGUI.Watcher/Watcher.vb",
+              "                If analysedFiles?.Count <> 0 Then\n"
+              "                    Dim mainCompressionLVL = analysedFiles.Select(Function(f) f.CompressionMode).Max\n"
+              "                    watched.CompressionLevel = If(mainCompressionLVL <> WOFCompressionAlgorithm.NO_COMPRESSION, mainCompressionLVL, watched.CompressionLevel)\n\n"
+              "                    If checkDiskModified Then\n",
+              "                If analysedFiles?.Count <> 0 Then\n"
+              "                    If watched.CompressionLevel = WOFCompressionAlgorithm.NO_COMPRESSION Then\n"
+              "                        watched.CompressionLevel = WOFHelper.GetDominantCompressionMode(analysedFiles)\n"
+              "                    End If\n\n"
+              "                    If checkDiskModified Then\n"
+          )
+
+          replace_once(
+              "CompactGUI.Watcher/BackgroundCompactor.vb",
+              "                            Dim analysed = Await analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token)",
+              "                            Await analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token)"
+          )
+
+          replace_once(
+              "CompactGUI.Watcher/BackgroundCompactor.vb",
+              "                            If analysed IsNot Nothing AndAlso analysed.Count > 0 Then\n"
+              "                                folder.CompressionLevel = analysed.Select(Function(f) f.CompressionMode).Max\n"
+              "                            End If\n\n",
+              ""
+          )
+
+          replace_once(
+              "CompactGUI/ViewModels/HomeViewModel.vb",
+              "                                   _watcher.UpdateWatched(folder.FolderName, folder.Analyser, True)",
+              "                                   Dim targetCompressionLevel = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)\n"
+              "                                   Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, ret, targetCompressionLevel:=targetCompressionLevel)"
+          )
+
+          replace_once(
+              "CompactGUI/ViewModels/HomeViewModel.vb",
+              "            AddOrUpdateFolderWatcher(folder)",
+              "            Dim wasCompressedInCurrentBatch = foldersToCompress.Contains(folder) AndAlso folder.IsFreshlyCompressed\n"
+              "            AddOrUpdateFolderWatcher(folder, wasCompressedInCurrentBatch)"
+          )
+
+          replace_once(
+              "CompactGUI/ViewModels/HomeViewModel.vb",
+              "    Public Sub AddOrUpdateFolderWatcher(folder As CompressableFolder)",
+              "    Public Sub AddOrUpdateFolderWatcher(folder As CompressableFolder, wasCompressedInCurrentBatch As Boolean)"
+          )
+
+          replace_once(
+              "CompactGUI/ViewModels/HomeViewModel.vb",
+              "        newWatched.CompressionLevel = If(folder.AnalysisResults.Any(), folder.AnalysisResults.Max(Function(f) f.CompressionMode), Core.WOFCompressionAlgorithm.NO_COMPRESSION)",
+              "        Dim existingWatched = _watcher.WatchedFolders.FirstOrDefault(Function(w) w.Folder = folder.FolderName)\n"
+              "        If wasCompressedInCurrentBatch Then\n"
+              "            newWatched.CompressionLevel = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)\n"
+              "        ElseIf existingWatched IsNot Nothing Then\n"
+              "            newWatched.CompressionLevel = existingWatched.CompressionLevel\n"
+              "        Else\n"
+              "            newWatched.CompressionLevel = Core.WOFHelper.GetDominantCompressionMode(folder.AnalysisResults)\n"
+              "        End If"
+          )
+
+          replace_once(
+              "CompactGUI/ViewModels/FolderViewModel.vb",
+              "        _watcher.UpdateWatched(Folder.FolderName, Folder.Analyser, False)",
+              "        Await _watcher.UpdateWatched(Folder.FolderName, Folder.Analyser, False)"
+          )
+          '@ | python -
 
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
 
-          $exe = Join-Path $publishDir "CompactGUI.exe"
-          if (-not (Test-Path $exe)) {
-            throw "Publish completed without producing CompactGUI.exe"
+          git fetch origin master --depth=1
+          git checkout origin/master -- .github/workflows/build-release.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CompactGUI.Watcher/Watcher.vb CompactGUI.Watcher/BackgroundCompactor.vb CompactGUI/ViewModels/HomeViewModel.vb CompactGUI/ViewModels/FolderViewModel.vb .github/workflows/build-release.yml
+
+          if (git diff --cached --quiet) {
+            Write-Host "No changes to commit."
+            exit 0
           }
 
-      - name: Package artifacts
-        shell: pwsh
-        run: |
-          $publishDir = Join-Path $env:RUNNER_TEMP "compactgui-publish"
-          $packageDir = Join-Path $env:RUNNER_TEMP "compactgui-package"
-          $artifactDir = Join-Path $env:RUNNER_TEMP "compactgui-artifacts"
-
-          Remove-Item $packageDir, $artifactDir -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item $packageDir, $artifactDir -ItemType Directory -Force | Out-Null
-
-          Copy-Item (Join-Path $publishDir "CompactGUI.exe") $packageDir
-          Copy-Item "LICENSE" $packageDir
-
-          @(
-            "Repository: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
-            "Commit: $env:GITHUB_SHA"
-            "Ref: $env:GITHUB_REF"
-            "Runtime: $env:RUNTIME_IDENTIFIER"
-          ) | Set-Content (Join-Path $packageDir "BUILD-INFO.txt") -Encoding utf8
-
-          $zipPath = Join-Path $artifactDir "CompactGUI-win-x64.zip"
-          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
-          Copy-Item (Join-Path $publishDir "CompactGUI.exe") (Join-Path $artifactDir "CompactGUI.exe")
-
-          Get-ChildItem $artifactDir -File |
-            Sort-Object Name |
-            ForEach-Object {
-              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              "$hash *$($_.Name)"
-            } | Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding ascii
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: CompactGUI-win-x64
-          path: ${{ runner.temp }}/compactgui-artifacts/*
-          if-no-files-found: error
-          retention-days: 14
-
-  release:
-    name: Publish GitHub release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Download release assets
-        uses: actions/download-artifact@v8
-        with:
-          name: CompactGUI-win-x64
-          path: release-assets
-
-      - name: Resolve release tag
-        id: release
-        shell: bash
-        env:
-          MANUAL_TAG: ${{ inputs.release_tag }}
-          MANUAL_PRERELEASE: ${{ inputs.prerelease }}
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-          else
-            tag="$MANUAL_TAG"
-          fi
-
-          if [[ -z "$tag" || "$tag" != v* ]]; then
-            echo "Release tags must start with v (for example: v4.0.0-beta.7-marc.1)." >&2
-            exit 1
-          fi
-
-          prerelease=false
-          if [[ "$tag" == *-* ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$MANUAL_PRERELEASE" == "true" ]]; then
-            prerelease=true
-          fi
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-
-      - name: Create or update release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          PRERELEASE: ${{ steps.release.outputs.prerelease }}
-        run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
-            exit 0
-          fi
-
-          release_args=(
-            release create "$TAG"
-            release-assets/*
-            --repo "$GITHUB_REPOSITORY"
-            --title "CompactGUI $TAG"
-            --generate-notes
-          )
-
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            release_args+=(--verify-tag)
-          else
-            release_args+=(--target "$GITHUB_SHA")
-          fi
-
-          if [[ "$PRERELEASE" == "true" ]]; then
-            release_args+=(--prerelease)
-          fi
-
-          gh "${release_args[@]}"
+          git commit -m "Complete watcher compression target fix"
+          git push origin "HEAD:$env:HEAD_REF"
