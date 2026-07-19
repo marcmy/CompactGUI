@@ -276,7 +276,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
     End Sub
 
-    Public Async Sub UpdateWatched(folder As String, analyser As Analyser, isFreshlyCompressed As Boolean, Optional immediateFlushToDisk As Boolean = True)
+    Public Async Function UpdateWatched(folder As String, analyser As Analyser, isFreshlyCompressed As Boolean, Optional immediateFlushToDisk As Boolean = True, Optional targetCompressionLevel As WOFCompressionAlgorithm = WOFCompressionAlgorithm.NO_COMPRESSION) As Task
 
         Dim existingItem = WatchedFolders.FirstOrDefault(Function(f) f.Folder = folder)
 
