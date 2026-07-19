@@ -41,7 +41,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
 
     <RelayCommand>
     Private Async Function RefreshWatched() As Task
-        Await Watcher.DeleteWatchersWithNonExistentFolders()
+        Watcher.RefreshWatchedFolderAvailability()
         Await Task.Run(Function() Watcher.ParseWatchers(True))
     End Function
 
@@ -54,6 +54,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
 
     <RelayCommand>
     Private Sub AddWatchedFolderToQueue(folder As Watcher.WatchedFolder)
+        If folder Is Nothing OrElse Not folder.RefreshAvailability() Then Return
 
         WeakReferenceMessenger.Default.Send(New WatcherAddedFolderToQueueMessage(folder.Folder))
     End Sub
@@ -91,6 +92,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
     End Function
 
 
+
     Public Async Function AddFolderAsync(folderPath As String) As Task(Of CompressableFolder)
 
         If GetInvalidFolders({folderPath}).InvalidFolders.Count > 0 Then
@@ -100,7 +102,6 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
         End If
 
         Return Await CompressableFolderFactory.CreateCompressableFolder(folderPath)
-
     End Function
 
 
