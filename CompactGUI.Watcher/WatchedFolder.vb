@@ -42,6 +42,7 @@ Public Class WatchedFolder
     Private WithEvents FSWatcher As FileSystemWatcher
 
     Private debounceTimer As Timer
+    Private isMonitoringPaused As Boolean
 
     Private disposedValue As Boolean
 
@@ -69,11 +70,11 @@ Public Class WatchedFolder
                     .NotifyFilter = NotifyFilters.Size Or NotifyFilters.CreationTime Or NotifyFilters.LastWrite Or NotifyFilters.FileName,
                     .IncludeSubdirectories = True,
                     .Filter = "",
-                    .EnableRaisingEvents = True
+                    .EnableRaisingEvents = Not isMonitoringPaused
                 }
                 debounceTimer = New Timer(AddressOf DebounceTimerCallback, Nothing, Timeout.Infinite, Timeout.Infinite)
             Else
-                FSWatcher.EnableRaisingEvents = True
+                FSWatcher.EnableRaisingEvents = Not isMonitoringPaused
             End If
 
             IsAvailable = True
@@ -99,6 +100,8 @@ Public Class WatchedFolder
     End Function
 
     Public Sub PauseMonitoring()
+        isMonitoringPaused = True
+
         If Not IsAvailable OrElse FSWatcher Is Nothing Then Return
 
         If Not Directory.Exists(Folder) Then
@@ -114,6 +117,7 @@ Public Class WatchedFolder
     End Sub
 
     Public Sub ResumeMonitoring()
+        isMonitoringPaused = False
         If Not RefreshAvailability() Then Return
 
         Try
