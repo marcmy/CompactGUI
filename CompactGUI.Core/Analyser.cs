@@ -125,10 +125,12 @@ public sealed class Analyser : IDisposable
 
     public List<ExtensionResult> GetPoorlyCompressedExtensions()
     {
+        List<AnalysedFileDetails> analysedFileDetails = _analysedFileDetails ?? [];
+
         // Only use PLINQ if the list is large enough to benefit from parallel processing
-        IEnumerable<AnalysedFileDetails> query = _analysedFileDetails?.Count <= 10000
-            ? _analysedFileDetails
-            : _analysedFileDetails.AsParallel();
+        IEnumerable<AnalysedFileDetails> query = analysedFileDetails.Count <= 10000
+            ? analysedFileDetails
+            : analysedFileDetails.AsParallel();
 
         return query
                 .Where(fl => fl.UncompressedSize > 0)
@@ -151,5 +153,3 @@ public sealed class Analyser : IDisposable
         _analysedFileDetails?.Clear();
     }
 }
-
-
