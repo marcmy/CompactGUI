@@ -113,6 +113,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload source for watcher investigation
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: CompactGUI-source
+          path: |
+            CompactGUI*/**
+            !CompactGUI*/bin/**
+            !CompactGUI*/obj/**
+            *.sln
+            *.md
+          if-no-files-found: error
+          retention-days: 1
+
   release:
     name: Publish GitHub release
     needs: build
