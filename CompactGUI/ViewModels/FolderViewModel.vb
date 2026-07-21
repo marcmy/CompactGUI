@@ -167,7 +167,7 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         _snackbarService.ShowAppliedToAllFolders()
     End Sub
 
-    <RelayCommand(CanExecute:=NameOf(CanControlCompression))>
+    <RelayCommand>
     Private Sub Pause()
 
         If Folder.FolderActionState = ActionState.Working Then
@@ -184,7 +184,15 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         Return Folder IsNot Nothing AndAlso (Folder.FolderActionState = ActionState.Working OrElse Folder.FolderActionState = ActionState.Paused)
     End Function
 
-    <RelayCommand(CanExecute:=NameOf(CanControlCompression))>
+    Private Function CanPause() As Boolean
+        Return CanControlCompression()
+    End Function
+
+    Private Function CanCancel() As Boolean
+        Return CanControlCompression()
+    End Function
+
+    <RelayCommand>
     Private Async Function Cancel() As Task
         If Not TypeOf Folder.Compressor Is Core.Compactor Then
             Folder.Compressor?.Cancel()
@@ -237,4 +245,3 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
 
 
 End Class
-
