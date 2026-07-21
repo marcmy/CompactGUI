@@ -1,0 +1,41 @@
+name: Apply compression stop workflow
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'agent/compression-stop-options' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply feature patch and remove staging files
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          cat .github/stop-patches/part*.patch > "$RUNNER_TEMP/compression-stop.patch"
+          git apply --check "$RUNNER_TEMP/compression-stop.patch"
+          git apply --whitespace=nowarn "$RUNNER_TEMP/compression-stop.patch"
+
+          rm -rf .github/stop-patches .github/stop-payload
+          rm -f .github/workflows/source-export.yml
+          rm -f .github/workflows/apply-compression-stop.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add safe manual compression stop choices"
+          git push origin "HEAD:$HEAD_REF"
