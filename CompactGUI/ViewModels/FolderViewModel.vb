@@ -131,6 +131,8 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
             OnPropertyChanged(NameOf(CompressionDisplayLevel))
             OnPropertyChanged(NameOf(DisplayedFolderAfterSize))
             OnPropertyChanged(NameOf(TotalFiles))
+            PauseCommand.NotifyCanExecuteChanged()
+            CancelCommand.NotifyCanExecuteChanged()
 
         ElseIf e.PropertyName = NameOf(Folder.CompressionProgress) Then
             CompressionProgress = Folder.CompressionProgress.ProgressPercent
@@ -165,7 +167,7 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         _snackbarService.ShowAppliedToAllFolders()
     End Sub
 
-    <RelayCommand>
+    <RelayCommand(CanExecute:=NameOf(CanControlCompression))>
     Private Sub Pause()
 
         If Folder.FolderActionState = ActionState.Working Then
@@ -178,10 +180,31 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         End If
     End Sub
 
-    <RelayCommand>
-    Private Sub Cancel()
-        Folder.Compressor?.Cancel()
-    End Sub
+    Private Function CanControlCompression() As Boolean
+        Return Folder IsNot Nothing AndAlso (Folder.FolderActionState = ActionState.Working OrElse Folder.FolderActionState = ActionState.Paused)
+    End Function
+
+    <RelayCommand(CanExecute:=NameOf(CanControlCompression))>
+    Private Async Function Cancel() As Task
+        If Not TypeOf Folder.Compressor Is Core.Compactor Then
+            Folder.Compressor?.Cancel()
+            Return
+        End If
+
+        If Folder.FolderActionState = ActionState.Working Then
+            Try
+                Folder.Compressor?.Pause()
+                Folder.FolderActionState = ActionState.Paused
+            Catch ex As OperationCanceledException
+                Return
+            Catch ex As ObjectDisposedException
+                Return
+            End Try
+        End If
+
+        Dim choice = Await Application.GetService(Of IWindowService)().ShowCompressionStopDialog(Folder.DisplayName)
+        _compressableFolderService.RequestCompressionStop(Folder, choice)
+    End Function
 
     <RelayCommand>
     Private Async Function SubmitToWiki() As Task

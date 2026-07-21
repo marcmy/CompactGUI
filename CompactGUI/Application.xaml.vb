@@ -74,6 +74,7 @@ Partial Public Class Application
                                services.AddSingleton(Of INavigationService, NavigationService)()
                                services.AddSingleton(Of CustomSnackBarService)()
                                services.AddSingleton(Of IWindowService, WindowService)()
+                               services.AddSingleton(Of CompressionResumeService)()
                                services.AddSingleton(Of IUpdaterService, UpdaterService)()
                                services.AddSingleton(Of IWikiService, WikiService)()
 

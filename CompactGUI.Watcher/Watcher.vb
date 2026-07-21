@@ -1,4 +1,4 @@
-Imports System.Collections.ObjectModel
+﻿Imports System.Collections.ObjectModel
 Imports System.Collections.Specialized
 Imports System.Runtime
 Imports System.Text.Json
@@ -288,7 +288,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             existingItem.LastCheckedSize = analyser.CompressedBytes
             existingItem.LastUncompressedSize = analyser.UncompressedBytes
             existingItem.LastSystemModifiedDate = DateTime.Now
-            If isFreshlyCompressed AndAlso targetCompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION Then
+            If targetCompressionLevel <> WOFCompressionAlgorithm.NO_COMPRESSION Then
                 existingItem.CompressionLevel = targetCompressionLevel
             Else
                 existingItem.CompressionLevel = WOFHelper.GetDominantCompressionMode(analysedFiles)

@@ -106,5 +106,6 @@ Public Enum ActionState
     Working
     Results
     Paused
+    Undoing
     Waiting
 End Enum

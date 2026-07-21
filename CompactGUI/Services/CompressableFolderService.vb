@@ -1,3 +1,4 @@
+﻿Imports System.Collections.Concurrent
 Imports System.Collections.ObjectModel
 Imports System.Threading
 
@@ -15,56 +16,123 @@ Public Class CompressableFolderService
     Private Shared ReadOnly UncompactorLogger As ILogger = Application.GetService(Of ILogger(Of Uncompactor))()
     Private Shared ReadOnly AnalyserLogger As ILogger = Application.GetService(Of ILogger(Of Analyser))()
 
+    Private ReadOnly _resumeService As CompressionResumeService
     Private folderTokens As New Dictionary(Of CompressableFolder, CancellationTokenSource)
+    Private ReadOnly stopChoices As New ConcurrentDictionary(Of CompressableFolder, CompressionStopChoice)
+
+    Public Sub New(resumeService As CompressionResumeService)
+        _resumeService = resumeService
+    End Sub
 
 
-    Public Async Function CompressFolder(folder As CompressableFolder) As Task(Of Boolean)
+    Public Async Function CompressFolder(folder As CompressableFolder) As Task(Of CompressionRunResult)
         folder.Compressor = New Compactor(folder.FolderName, WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode), GetSkipList(folder), folder.Analyser, CompactorLogger)
         Return Await RunCompressionAsync(folder, folder.Compressor, Nothing, True)
-
-
     End Function
 
 
     Public Async Function UncompressFolder(folder As CompressableFolder) As Task(Of Boolean)
 
+        _resumeService.RemoveSession(folder.FolderName)
         folder.Compressor = New Uncompactor(UncompactorLogger)
         Dim compressedFilesList = folder.AnalysisResults.Where(Function(rs) rs.CompressedSize < rs.UncompressedSize).Select(Of String)(Function(f) f.FileName).ToList
-        Return Await RunCompressionAsync(folder, folder.Compressor, compressedFilesList, isCompressing:=False)
-
-
+        Dim result = Await RunCompressionAsync(folder, folder.Compressor, compressedFilesList, isCompressing:=False)
+        Await AnalyseFolderAsync(folder)
+        Return result.Completed
     End Function
 
-    Private Async Function RunCompressionAsync(folder As CompressableFolder, compressor As ICompressor, filesList As List(Of String), isCompressing As Boolean) As Task(Of Boolean)
+
+    Public Sub RequestCompressionStop(folder As CompressableFolder, choice As CompressionStopChoice)
+        If folder Is Nothing OrElse Not TypeOf folder.Compressor Is Compactor Then Return
+        If folder.FolderActionState <> ActionState.Working AndAlso folder.FolderActionState <> ActionState.Paused Then Return
+
+        If choice = CompressionStopChoice.SaveProgress Then
+            _resumeService.SaveSession(folder)
+        Else
+            _resumeService.RemoveSession(folder.FolderName)
+        End If
+
+        stopChoices(folder) = choice
+
+        Try
+            folder.Compressor.Cancel()
+        Catch ex As ObjectDisposedException
+            'The compression completed while the stop dialog was open.
+        End Try
+    End Sub
+
+    Private Async Function RunCompressionAsync(folder As CompressableFolder, compressor As ICompressor, filesList As List(Of String), isCompressing As Boolean) As Task(Of CompressionRunResult)
         folder.FolderActionState = ActionState.Working
 
         CancelEstimation(folder)
         Dim cts = New CancellationTokenSource()
         folderTokens(folder) = cts
         Dim progress As IProgress(Of CompressionProgress) = New Progress(Of CompressionProgress)(Sub(x) folder.CompressionProgress = x)
+        Dim runResult As New CompressionRunResult()
 
         progress.Report(New CompressionProgress(0, ""))
 
-        Dim res = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
+        Try
+            runResult.Completed = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
 
-        If isCompressing Then
-            folder.FolderActionState = ActionState.Results
-            folder.IsFreshlyCompressed = res
-        Else
-            folder.FolderActionState = ActionState.Idle
-            folder.IsFreshlyCompressed = False
-            Await AnalyseFolderAsync(folder)
-        End If
-        compressor.Dispose()
+            If isCompressing Then
+                Dim stopChoice As CompressionStopChoice
+                If Not runResult.Completed AndAlso stopChoices.TryRemove(folder, stopChoice) Then
+                    runResult.StopChoice = stopChoice
 
+                    If stopChoice = CompressionStopChoice.UndoProgress AndAlso TypeOf compressor Is Compactor Then
+                        folder.FolderActionState = ActionState.Undoing
+                        Await RestoreProcessedFilesAsync(folder, DirectCast(compressor, Compactor), progress)
+                    End If
+                ElseIf runResult.Completed Then
+                    stopChoices.TryRemove(folder, stopChoice)
+                    _resumeService.RemoveSession(folder.FolderName)
+                End If
 
-        folderTokens(folder).Dispose()
-        folderTokens.Remove(folder)
+                folder.FolderActionState = ActionState.Results
+                folder.IsFreshlyCompressed = runResult.Completed
+            Else
+                folder.FolderActionState = ActionState.Idle
+                folder.IsFreshlyCompressed = False
+            End If
 
+            Return runResult
+        Finally
+            compressor.Dispose()
 
-        Return res
+            Dim ownedToken As CancellationTokenSource = Nothing
+            If folderTokens.TryGetValue(folder, ownedToken) AndAlso Object.ReferenceEquals(ownedToken, cts) Then
+                folderTokens.Remove(folder)
+                ownedToken.Dispose()
+            Else
+                cts.Dispose()
+            End If
+        End Try
     End Function
 
+
+
+    Private Async Function RestoreProcessedFilesAsync(folder As CompressableFolder, compactor As Compactor, progress As IProgress(Of CompressionProgress)) As Task
+        Dim processedFiles = compactor.ProcessedFiles.ToList()
+        If processedFiles.Count = 0 Then Return
+
+        Dim threadCount = GetThreadCount(folder)
+
+        For Each modeGroup In processedFiles.GroupBy(Function(item) item.Value)
+            Dim files = modeGroup.Select(Function(item) item.Key).ToList()
+
+            Select Case modeGroup.Key
+                Case WOFCompressionAlgorithm.XPRESS4K, WOFCompressionAlgorithm.XPRESS8K, WOFCompressionAlgorithm.XPRESS16K, WOFCompressionAlgorithm.LZX
+                    Using restorer As New Compactor(folder.FolderName, modeGroup.Key, Array.Empty(Of String), folder.Analyser, CompactorLogger)
+                        Await restorer.RunAsync(files, progress, threadCount)
+                    End Using
+                Case Else
+                    Using uncompactor As New Uncompactor(UncompactorLogger)
+                        Await uncompactor.RunAsync(files, progress, threadCount)
+                    End Using
+            End Select
+        Next
+    End Function
 
     Public Async Function AnalyseFolderAsync(folder As CompressableFolder) As Task(Of Integer)
 
