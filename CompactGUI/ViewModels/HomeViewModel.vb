@@ -144,7 +144,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
             newFolder.CompressionOptions.SkipPoorlyCompressedFileTypes = _settingsService.AppSettings.SkipNonCompressable
             newFolder.CompressionOptions.SkipUserSubmittedFiletypes = _settingsService.AppSettings.SkipUserNonCompressable
 
-            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.Resume AndAlso savedSession IsNot Nothing Then
+            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.ResumeProgress AndAlso savedSession IsNot Nothing Then
                 newFolder.CompressionOptions.SelectedCompressionMode = savedSession.SelectedCompressionMode
                 newFolder.CompressionOptions.SkipPoorlyCompressedFileTypes = savedSession.SkipPoorlyCompressedFileTypes
                 newFolder.CompressionOptions.SkipUserSubmittedFiletypes = savedSession.SkipUserSubmittedFiletypes
@@ -167,12 +167,12 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
             If _watcher.WatchedFolders.Any(Function(watched) watched.Folder = newFolder.FolderName) Then
                 Dim watchedFolder = _watcher.WatchedFolders.First(Function(watched) watched.Folder = newFolder.FolderName)
                 newFolder.CompressionOptions.WatchFolderForChanges = True
-                If (Not resumeChoice.HasValue OrElse resumeChoice.Value <> CompressionResumeChoice.Resume) AndAlso watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
+                If (Not resumeChoice.HasValue OrElse resumeChoice.Value <> CompressionResumeChoice.ResumeProgress) AndAlso watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
                     newFolder.CompressionOptions.SelectedCompressionMode = Core.WOFHelper.CompressionModeFromWOFMode(watchedFolder.CompressionLevel)
                 End If
             End If
 
-            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.Resume Then foldersToResume.Add(newFolder)
+            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.ResumeProgress Then foldersToResume.Add(newFolder)
         Next
 
         If foldersToResume.Count > 0 Then Await CompressFoldersAsync(foldersToResume)

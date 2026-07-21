@@ -76,7 +76,7 @@ Public Class WindowService
 
         Select Case Await msgBox.ShowDialogAsync()
             Case Wpf.Ui.Controls.MessageBoxResult.Primary
-                Return CompressionResumeChoice.Resume
+                Return CompressionResumeChoice.ResumeProgress
             Case Wpf.Ui.Controls.MessageBoxResult.Secondary
                 Return CompressionResumeChoice.DiscardSavedProgress
             Case Else

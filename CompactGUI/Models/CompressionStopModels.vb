@@ -5,7 +5,7 @@
 End Enum
 
 Public Enum CompressionResumeChoice
-    Resume
+    ResumeProgress
     DiscardSavedProgress
     Cancel
 End Enum
