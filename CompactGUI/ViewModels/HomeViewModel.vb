@@ -1,6 +1,7 @@
 ﻿Imports System.Collections.ObjectModel
 Imports System.Collections.Specialized
 Imports System.ComponentModel
+Imports System.Runtime.ExceptionServices
 
 Imports CommunityToolkit.Mvvm.ComponentModel
 Imports CommunityToolkit.Mvvm.Input
@@ -257,6 +258,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         HomeViewModelLog.StartingBatchCompression(_logger, foldersToCompress.Count)
 
         Dim watcherTargetOverrides As New Dictionary(Of CompressableFolder, Core.WOFCompressionAlgorithm)()
+        Dim capturedException As Exception = Nothing
 
         Try
             For Each folder In foldersToCompress
@@ -291,12 +293,18 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 watcherTargetOverrides.TryGetValue(folder, targetOverride)
                 AddOrUpdateFolderWatcher(folder, wasCompressedInCurrentBatch, targetOverride)
             Next
+        Catch ex As Exception
+            capturedException = ex
         Finally
             Compressing = False
             RemoveFolderCommand.NotifyCanExecuteChanged()
             Core.SharedMethods.RestoreSleep()
-            Await _watcher.EnableBackgrounding()
         End Try
+
+        Await _watcher.EnableBackgrounding()
+        If capturedException IsNot Nothing Then
+            ExceptionDispatchInfo.Capture(capturedException).Throw()
+        End If
     End Function
 
 
