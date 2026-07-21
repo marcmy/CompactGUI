@@ -1,0 +1,262 @@
+diff --git a/CompactGUI/Application.xaml.vb b/CompactGUI/Application.xaml.vb
+index 4c17cc6..685951d 100644
+--- a/CompactGUI/Application.xaml.vb
++++ b/CompactGUI/Application.xaml.vb
+@@ -74,6 +74,7 @@ Partial Public Class Application
+                                services.AddSingleton(Of INavigationService, NavigationService)()
+                                services.AddSingleton(Of CustomSnackBarService)()
+                                services.AddSingleton(Of IWindowService, WindowService)()
++                               services.AddSingleton(Of CompressionResumeService)()
+                                services.AddSingleton(Of IUpdaterService, UpdaterService)()
+                                services.AddSingleton(Of IWikiService, WikiService)()
+ 
+diff --git a/CompactGUI/Components/Converters/IValueConverters.vb b/CompactGUI/Components/Converters/IValueConverters.vb
+index 01acbaf..135b630 100644
+--- a/CompactGUI/Components/Converters/IValueConverters.vb
++++ b/CompactGUI/Components/Converters/IValueConverters.vb
+@@ -281,7 +281,7 @@ Public Class FolderStatusToColorConverter : Implements IValueConverter
+         Select Case status
+             Case ActionState.Idle
+                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#92e7f1"))
+-            Case ActionState.Analysing, ActionState.Working, ActionState.Paused
++            Case ActionState.Analysing, ActionState.Working, ActionState.Paused, ActionState.Undoing
+                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#F1CE92"))
+             Case ActionState.Results
+                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#92F1AB"))
+@@ -305,6 +305,8 @@ Public Class FolderStatusToStringConverter : Implements IValueConverter
+                 Return LanguageHelper.GetString("Status_Analysing")
+             Case ActionState.Working, ActionState.Paused
+                 Return LanguageHelper.GetString("Status_Working")
++            Case ActionState.Undoing
++                Return LanguageHelper.GetString("Status_Undoing")
+             Case ActionState.Results
+                 Return LanguageHelper.GetString("Status_Compressed")
+             Case Else
+@@ -406,7 +408,7 @@ Public Class FolderActionStateWorkingToVisibilityConverter
+     Public Function Convert(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.Convert
+         Dim status = CType(value, ActionState)
+         Select Case status
+-            Case ActionState.Working
++            Case ActionState.Working, ActionState.Undoing
+                 Return Visibility.Visible
+             Case Else
+                 Return Visibility.Collapsed
+diff --git a/CompactGUI/Components/FolderActionStateTemplateSelector.vb b/CompactGUI/Components/FolderActionStateTemplateSelector.vb
+index b028349..2395c54 100644
+--- a/CompactGUI/Components/FolderActionStateTemplateSelector.vb
++++ b/CompactGUI/Components/FolderActionStateTemplateSelector.vb
+@@ -15,7 +15,7 @@
+                 Return IdleTemplate
+             Case ActionState.Analysing
+                 Return AnalysingTemplate
+-            Case ActionState.Working, ActionState.Paused
++            Case ActionState.Working, ActionState.Paused, ActionState.Undoing
+                 Return CompressingTemplate
+             Case ActionState.Results
+                 Return ResultsTemplate
+@@ -42,7 +42,7 @@ Public Class HomeViewStateTemplateSelector
+                 Return IdleTemplate
+             Case ActionState.Analysing
+                 Return AnalysingTemplate
+-            Case ActionState.Working, ActionState.Paused
++            Case ActionState.Working, ActionState.Paused, ActionState.Undoing
+                 Return CompressingTemplate
+             Case ActionState.Results
+                 Return ResultsTemplate
+diff --git a/CompactGUI/Models/CompressableFolders/CompressableFolder.vb b/CompactGUI/Models/CompressableFolders/CompressableFolder.vb
+index 815050f..2b6a841 100644
+--- a/CompactGUI/Models/CompressableFolders/CompressableFolder.vb
++++ b/CompactGUI/Models/CompressableFolders/CompressableFolder.vb
+@@ -106,5 +106,6 @@ Public Enum ActionState
+     Working
+     Results
+     Paused
++    Undoing
+     Waiting
+ End Enum
+\ No newline at end of file
+diff --git a/CompactGUI/Models/CompressionStopModels.vb b/CompactGUI/Models/CompressionStopModels.vb
+new file mode 100644
+index 0000000..441e584
+--- /dev/null
++++ b/CompactGUI/Models/CompressionStopModels.vb
+@@ -0,0 +1,26 @@
++﻿Public Enum CompressionStopChoice
++    SaveProgress
++    UndoProgress
++    LeaveAsIs
++End Enum
++
++Public Enum CompressionResumeChoice
++    Resume
++    DiscardSavedProgress
++    Cancel
++End Enum
++
++
++Public NotInheritable Class CompressionRunResult
++    Public Property Completed As Boolean
++    Public Property StopChoice As CompressionStopChoice?
++End Class
++
++Public NotInheritable Class SavedCompressionSession
++    Public Property FolderPath As String = String.Empty
++    Public Property SelectedCompressionMode As Core.CompressionMode
++    Public Property SkipPoorlyCompressedFileTypes As Boolean
++    Public Property SkipUserSubmittedFiletypes As Boolean
++    Public Property WatchFolderForChanges As Boolean
++    Public Property SavedAt As DateTime = DateTime.Now
++End Class
+diff --git a/CompactGUI/Services/CompressableFolderService.vb b/CompactGUI/Services/CompressableFolderService.vb
+index 594c344..5d487c3 100644
+--- a/CompactGUI/Services/CompressableFolderService.vb
++++ b/CompactGUI/Services/CompressableFolderService.vb
+@@ -1,3 +1,4 @@
++﻿Imports System.Collections.Concurrent
+ Imports System.Collections.ObjectModel
+ Imports System.Threading
+ 
+@@ -15,56 +16,123 @@ Public Class CompressableFolderService
+     Private Shared ReadOnly UncompactorLogger As ILogger = Application.GetService(Of ILogger(Of Uncompactor))()
+     Private Shared ReadOnly AnalyserLogger As ILogger = Application.GetService(Of ILogger(Of Analyser))()
+ 
++    Private ReadOnly _resumeService As CompressionResumeService
+     Private folderTokens As New Dictionary(Of CompressableFolder, CancellationTokenSource)
++    Private ReadOnly stopChoices As New ConcurrentDictionary(Of CompressableFolder, CompressionStopChoice)
++
++    Public Sub New(resumeService As CompressionResumeService)
++        _resumeService = resumeService
++    End Sub
+ 
+ 
+-    Public Async Function CompressFolder(folder As CompressableFolder) As Task(Of Boolean)
++    Public Async Function CompressFolder(folder As CompressableFolder) As Task(Of CompressionRunResult)
+         folder.Compressor = New Compactor(folder.FolderName, WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode), GetSkipList(folder), folder.Analyser, CompactorLogger)
+         Return Await RunCompressionAsync(folder, folder.Compressor, Nothing, True)
+-
+-
+     End Function
+ 
+ 
+     Public Async Function UncompressFolder(folder As CompressableFolder) As Task(Of Boolean)
+ 
++        _resumeService.RemoveSession(folder.FolderName)
+         folder.Compressor = New Uncompactor(UncompactorLogger)
+         Dim compressedFilesList = folder.AnalysisResults.Where(Function(rs) rs.CompressedSize < rs.UncompressedSize).Select(Of String)(Function(f) f.FileName).ToList
+-        Return Await RunCompressionAsync(folder, folder.Compressor, compressedFilesList, isCompressing:=False)
++        Dim result = Await RunCompressionAsync(folder, folder.Compressor, compressedFilesList, isCompressing:=False)
++        Await AnalyseFolderAsync(folder)
++        Return result.Completed
++    End Function
+ 
+ 
+-    End Function
++    Public Sub RequestCompressionStop(folder As CompressableFolder, choice As CompressionStopChoice)
++        If folder Is Nothing OrElse Not TypeOf folder.Compressor Is Compactor Then Return
++        If folder.FolderActionState <> ActionState.Working AndAlso folder.FolderActionState <> ActionState.Paused Then Return
++
++        If choice = CompressionStopChoice.SaveProgress Then
++            _resumeService.SaveSession(folder)
++        Else
++            _resumeService.RemoveSession(folder.FolderName)
++        End If
++
++        stopChoices(folder) = choice
++
++        Try
++            folder.Compressor.Cancel()
++        Catch ex As ObjectDisposedException
++            'The compression completed while the stop dialog was open.
++        End Try
++    End Sub
+ 
+-    Private Async Function RunCompressionAsync(folder As CompressableFolder, compressor As ICompressor, filesList As List(Of String), isCompressing As Boolean) As Task(Of Boolean)
++    Private Async Function RunCompressionAsync(folder As CompressableFolder, compressor As ICompressor, filesList As List(Of String), isCompressing As Boolean) As Task(Of CompressionRunResult)
+         folder.FolderActionState = ActionState.Working
+ 
+         CancelEstimation(folder)
+         Dim cts = New CancellationTokenSource()
+         folderTokens(folder) = cts
+         Dim progress As IProgress(Of CompressionProgress) = New Progress(Of CompressionProgress)(Sub(x) folder.CompressionProgress = x)
++        Dim runResult As New CompressionRunResult()
+ 
+         progress.Report(New CompressionProgress(0, ""))
+ 
+-        Dim res = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
++        Try
++            runResult.Completed = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
++
++            If isCompressing Then
++                Dim stopChoice As CompressionStopChoice
++                If Not runResult.Completed AndAlso stopChoices.TryRemove(folder, stopChoice) Then
++                    runResult.StopChoice = stopChoice
++
++                    If stopChoice = CompressionStopChoice.UndoProgress AndAlso TypeOf compressor Is Compactor Then
++                        folder.FolderActionState = ActionState.Undoing
++                        Await RestoreProcessedFilesAsync(folder, DirectCast(compressor, Compactor), progress)
++                    End If
++                ElseIf runResult.Completed Then
++                    stopChoices.TryRemove(folder, stopChoice)
++                    _resumeService.RemoveSession(folder.FolderName)
++                End If
++
++                folder.FolderActionState = ActionState.Results
++                folder.IsFreshlyCompressed = runResult.Completed
++            Else
++                folder.FolderActionState = ActionState.Idle
++                folder.IsFreshlyCompressed = False
++            End If
+ 
+-        If isCompressing Then
+-            folder.FolderActionState = ActionState.Results
+-            folder.IsFreshlyCompressed = res
+-        Else
+-            folder.FolderActionState = ActionState.Idle
+-            folder.IsFreshlyCompressed = False
+-            Await AnalyseFolderAsync(folder)
+-        End If
+-        compressor.Dispose()
++            Return runResult
++        Finally
++            compressor.Dispose()
++
++            Dim ownedToken As CancellationTokenSource = Nothing
++            If folderTokens.TryGetValue(folder, ownedToken) AndAlso Object.ReferenceEquals(ownedToken, cts) Then
++                folderTokens.Remove(folder)
++                ownedToken.Dispose()
++            Else
++                cts.Dispose()
++            End If
++        End Try
++    End Function
+ 
+ 
+-        folderTokens(folder).Dispose()
+-        folderTokens.Remove(folder)
+ 
++    Private Async Function RestoreProcessedFilesAsync(folder As CompressableFolder, compactor As Compactor, progress As IProgress(Of CompressionProgress)) As Task
++        Dim processedFiles = compactor.ProcessedFiles.ToList()
++        If processedFiles.Count = 0 Then Return
+ 
+-        Return res
+-    End Function
++        Dim threadCount = GetThreadCount(folder)
+ 
++        For Each modeGroup In processedFiles.GroupBy(Function(item) item.Value)
++            Dim files = modeGroup.Select(Function(item) item.Key).ToList()
++
++            Select Case modeGroup.Key
++                Case WOFCompressionAlgorithm.XPRESS4K, WOFCompressionAlgorithm.XPRESS8K, WOFCompressionAlgorithm.XPRESS16K, WOFCompressionAlgorithm.LZX
++                    Using restorer As New Compactor(folder.FolderName, modeGroup.Key, Array.Empty(Of String), folder.Analyser, CompactorLogger)
++                        Await restorer.RunAsync(files, progress, threadCount)
++                    End Using
++                Case Else
++                    Using uncompactor As New Uncompactor(UncompactorLogger)
++                        Await uncompactor.RunAsync(files, progress, threadCount)
++                    End Using
++            End Select
++        Next
++    End Function
+ 
+     Public Async Function AnalyseFolderAsync(folder As CompressableFolder) As Task(Of Integer)
+ 
