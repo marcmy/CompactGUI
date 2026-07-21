@@ -1,9 +1,11 @@
-﻿Public Enum CompressionStopChoice
+﻿' Decisions shown when stopping an active manual compression run.
+Public Enum CompressionStopChoice
     SaveProgress
     UndoProgress
     LeaveAsIs
 End Enum
 
+' Decisions shown when a folder has a saved resumable compression session.
 Public Enum CompressionResumeChoice
     ResumeProgress
     DiscardSavedProgress
