@@ -14,6 +14,7 @@ End Enum
 
 Public NotInheritable Class CompressionRunResult
     Public Property Completed As Boolean
+    Public Property HadWork As Boolean
     Public Property StopChoice As CompressionStopChoice?
 End Class
 
