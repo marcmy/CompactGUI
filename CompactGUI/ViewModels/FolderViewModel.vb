@@ -125,12 +125,20 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
     End Sub
 
     Private Sub OnFolderPropertyChanged(sender As Object, e As PropertyChangedEventArgs)
+        Dim dispatcher = Application.Current?.Dispatcher
+        If dispatcher IsNot Nothing AndAlso Not dispatcher.CheckAccess() Then
+            dispatcher.BeginInvoke(Sub() OnFolderPropertyChanged(sender, e))
+            Return
+        End If
+
         If e.PropertyName = NameOf(Folder.FolderActionState) Then
             OnPropertyChanged(NameOf(IsAnalysing))
             OnPropertyChanged(NameOf(IsNotResultsOrAnalysing))
             OnPropertyChanged(NameOf(CompressionDisplayLevel))
             OnPropertyChanged(NameOf(DisplayedFolderAfterSize))
             OnPropertyChanged(NameOf(TotalFiles))
+            PauseCommand.NotifyCanExecuteChanged()
+            CancelCommand.NotifyCanExecuteChanged()
 
         ElseIf e.PropertyName = NameOf(Folder.CompressionProgress) Then
             CompressionProgress = Folder.CompressionProgress.ProgressPercent
@@ -178,10 +186,39 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         End If
     End Sub
 
+    Private Function CanControlCompression() As Boolean
+        Return Folder IsNot Nothing AndAlso (Folder.FolderActionState = ActionState.Working OrElse Folder.FolderActionState = ActionState.Paused)
+    End Function
+
+    Private Function CanPause() As Boolean
+        Return CanControlCompression()
+    End Function
+
+    Private Function CanCancel() As Boolean
+        Return CanControlCompression()
+    End Function
+
     <RelayCommand>
-    Private Sub Cancel()
-        Folder.Compressor?.Cancel()
-    End Sub
+    Private Async Function Cancel() As Task
+        If Not TypeOf Folder.Compressor Is Core.Compactor Then
+            Folder.Compressor?.Cancel()
+            Return
+        End If
+
+        If Folder.FolderActionState = ActionState.Working Then
+            Try
+                Folder.Compressor?.Pause()
+                Folder.FolderActionState = ActionState.Paused
+            Catch ex As OperationCanceledException
+                Return
+            Catch ex As ObjectDisposedException
+                Return
+            End Try
+        End If
+
+        Dim choice = Await Application.GetService(Of IWindowService)().ShowCompressionStopDialog(Folder.DisplayName)
+        _compressableFolderService.RequestCompressionStop(Folder, choice)
+    End Function
 
     <RelayCommand>
     Private Async Function SubmitToWiki() As Task
@@ -214,4 +251,3 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
 
 
 End Class
-

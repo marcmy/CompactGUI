@@ -1,6 +1,7 @@
 ﻿Imports System.Collections.ObjectModel
 Imports System.Collections.Specialized
 Imports System.ComponentModel
+Imports System.Runtime.ExceptionServices
 
 Imports CommunityToolkit.Mvvm.ComponentModel
 Imports CommunityToolkit.Mvvm.Input
@@ -31,7 +32,6 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
             Dim value As FolderViewModel = Nothing
             Return If(_folderViewModels.TryGetValue(SelectedFolder, value), value, Nothing)
-
         End Get
     End Property
 
@@ -110,59 +110,73 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
         HomeViewModelLog.AddingFolders(_logger, folderPaths)
 
-        Dim invalidFolders = GetInvalidFolders(folderPaths.ToArray)
+        Dim invalidFolders = GetInvalidFolders(folderPaths.ToArray())
         Dim validFolders = folderPaths.Except(invalidFolders.InvalidFolders)
+        Dim foldersToResume As New List(Of CompressableFolder)()
+        Dim resumeService = Application.GetService(Of CompressionResumeService)()
+        Dim windowService = Application.GetService(Of IWindowService)()
 
         If invalidFolders.InvalidFolders.Count > 0 Then
-            'TODO: Move this logger check to the snackbarService class?
-            HomeViewModelLog.InvalidFolders(_logger, invalidFolders.InvalidFolders, invalidFolders.InvalidMessages.Select(Function(x) GetFolderVerificationMessage(x)))
+            HomeViewModelLog.InvalidFolders(_logger, invalidFolders.InvalidFolders, invalidFolders.InvalidMessages.Select(Function(result) GetFolderVerificationMessage(result)))
             _snackbarService.ShowInvalidFoldersMessage(invalidFolders.InvalidFolders, invalidFolders.InvalidMessages)
         End If
 
         For Each folderName In validFolders
+            If Folders.Any(Function(folder) String.Equals(folder.FolderName, folderName, StringComparison.OrdinalIgnoreCase)) Then Continue For
+
+            Dim savedSession As SavedCompressionSession = Nothing
+            Dim resumeChoice As CompressionResumeChoice? = Nothing
+
+            If resumeService.TryGetSession(folderName, savedSession) Then
+                resumeChoice = Await windowService.ShowResumeCompressionDialog(savedSession)
+                If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.Cancel Then Continue For
+                If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.DiscardSavedProgress Then
+                    resumeService.RemoveSession(folderName)
+                    savedSession = Nothing
+                End If
+            End If
 
             Dim newFolder As CompressableFolder = Await CompressableFolderFactory.CreateCompressableFolder(folderName)
+            If newFolder Is Nothing Then Continue For
 
             newFolder.CompressionOptions.WatchFolderForChanges = _settingsService.AppSettings.WatchFolderForChanges
             newFolder.CompressionOptions.SelectedCompressionMode = _settingsService.AppSettings.SelectedCompressionMode
             newFolder.CompressionOptions.SkipPoorlyCompressedFileTypes = _settingsService.AppSettings.SkipNonCompressable
             newFolder.CompressionOptions.SkipUserSubmittedFiletypes = _settingsService.AppSettings.SkipUserNonCompressable
 
-            If Not Folders.Any(Function(f) f.FolderName = newFolder.FolderName) Then
-                Folders.Add(newFolder)
-                Dim vm As New FolderViewModel(newFolder, _watcher, _snackbarService, _compressableFolderService)
-                _folderViewModels.Add(newFolder, vm)
-                SelectedFolder = newFolder
+            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.ResumeProgress AndAlso savedSession IsNot Nothing Then
+                newFolder.CompressionOptions.SelectedCompressionMode = savedSession.SelectedCompressionMode
+                newFolder.CompressionOptions.SkipPoorlyCompressedFileTypes = savedSession.SkipPoorlyCompressedFileTypes
+                newFolder.CompressionOptions.SkipUserSubmittedFiletypes = savedSession.SkipUserSubmittedFiletypes
+                newFolder.CompressionOptions.WatchFolderForChanges = savedSession.WatchFolderForChanges
             End If
 
-            Dim res = Await _compressableFolderService.AnalyseFolderAsync(newFolder)
-            If TypeOf (newFolder) Is SteamFolder Then
+            Folders.Add(newFolder)
+            Dim viewModel As New FolderViewModel(newFolder, _watcher, _snackbarService, _compressableFolderService)
+            _folderViewModels.Add(newFolder, viewModel)
+            SelectedFolder = newFolder
+
+            Await _compressableFolderService.AnalyseFolderAsync(newFolder)
+            If TypeOf newFolder Is SteamFolder Then
                 Await CType(newFolder, SteamFolder).GetWikiResults()
-            Else
-                If _settingsService.AppSettings.EstimateCompressionForNonSteamFolders Then
-                    HomeViewModelLog.GettingEstimatedCompression(_logger, newFolder.FolderName, newFolder.UncompressedBytes)
-                    Await _compressableFolderService.GetEstimatedCompression(newFolder)
-                End If
-
+            ElseIf _settingsService.AppSettings.EstimateCompressionForNonSteamFolders Then
+                HomeViewModelLog.GettingEstimatedCompression(_logger, newFolder.FolderName, newFolder.UncompressedBytes)
+                Await _compressableFolderService.GetEstimatedCompression(newFolder)
             End If
 
-            If _watcher.WatchedFolders.Any(Function(w) w.Folder = newFolder.FolderName) Then
-                Dim watchedFolder = _watcher.WatchedFolders.First(Function(w) w.Folder = newFolder.FolderName)
+            If _watcher.WatchedFolders.Any(Function(watched) watched.Folder = newFolder.FolderName) Then
+                Dim watchedFolder = _watcher.WatchedFolders.First(Function(watched) watched.Folder = newFolder.FolderName)
                 newFolder.CompressionOptions.WatchFolderForChanges = True
-                If watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
+                If (Not resumeChoice.HasValue OrElse resumeChoice.Value <> CompressionResumeChoice.ResumeProgress) AndAlso watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
                     newFolder.CompressionOptions.SelectedCompressionMode = Core.WOFHelper.CompressionModeFromWOFMode(watchedFolder.CompressionLevel)
                 End If
-
             End If
 
-
-
+            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.ResumeProgress Then foldersToResume.Add(newFolder)
         Next
 
-
+        If foldersToResume.Count > 0 Then Await CompressFoldersAsync(foldersToResume)
     End Function
-
-
 
 
     <RelayCommand>
@@ -204,7 +218,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
             Dim retState As ActionState
 
-            If Compressing OrElse Folders.Any(Function(f) f.FolderActionState = ActionState.Working OrElse f.FolderActionState = ActionState.Paused) Then
+            If Compressing OrElse Folders.Any(Function(f) f.FolderActionState = ActionState.Working OrElse f.FolderActionState = ActionState.Paused OrElse f.FolderActionState = ActionState.Undoing) Then
                 retState = ActionState.Working
             ElseIf Folders.Any(Function(f) f.FolderActionState = ActionState.Analysing) Then
                 retState = ActionState.Analysing
@@ -230,48 +244,72 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
     <RelayCommand>
     Private Async Function CompressAll() As Task
+        Dim foldersToCompress = Folders.Where(Function(folder) folder.FolderActionState = ActionState.Idle).ToList()
+        Await CompressFoldersAsync(foldersToCompress)
+    End Function
+
+    Private Async Function CompressFoldersAsync(foldersToCompress As IReadOnlyCollection(Of CompressableFolder)) As Task
+        If foldersToCompress Is Nothing OrElse foldersToCompress.Count = 0 Then Return
 
         Await _watcher.DisableBackgrounding()
-
         Compressing = True
         Core.SharedMethods.PreventSleep()
-        Dim tasks As New List(Of Task)()
-        Dim foldersToCompress = Folders.Where(Function(f) f.FolderActionState = ActionState.Idle).ToList
         HomeViewModelLog.StartingBatchCompression(_logger, foldersToCompress.Count)
-        For Each folder In foldersToCompress
-            If folder.FolderActionState = ActionState.Idle Then
-                Await Task.Run(Async Function()
-                                   HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
-                                   Dim ret = Await _compressableFolderService.CompressFolder(folder)
-                                   Dim analysis = Await _compressableFolderService.AnalyseFolderAsync(folder)
 
-                                   If _settingsService.AppSettings.ShowNotifications Then
+        Dim watcherTargetOverrides As New Dictionary(Of CompressableFolder, Core.WOFCompressionAlgorithm)()
+        Dim foldersWithCompressionWork As New HashSet(Of CompressableFolder)()
+        Dim capturedException As Exception = Nothing
 
-                                       Application.GetService(Of TrayNotifierService).Notify_Compressed(folder.DisplayName, folder.UncompressedBytes - folder.CompressedBytes, folder.CompressionRatio)
+        Try
+            For Each folder In foldersToCompress
+                If folder.FolderActionState = ActionState.Analysing OrElse folder.FolderActionState = ActionState.Working OrElse folder.FolderActionState = ActionState.Paused OrElse folder.FolderActionState = ActionState.Undoing Then Continue For
 
-                                   End If
+                Dim existingWatched = _watcher.WatchedFolders.FirstOrDefault(Function(watched) watched.Folder = folder.FolderName)
+                Dim previousWatcherTarget = If(existingWatched?.CompressionLevel, Core.WOFCompressionAlgorithm.NO_COMPRESSION)
 
-                                   Dim targetCompressionLevel = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
-                                   Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, ret, targetCompressionLevel:=targetCompressionLevel)
+                'Keep the orchestration on the WPF synchronization context. The compressor performs
+                'its own asynchronous file work, while folder state and commands remain UI-thread-owned.
+                HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
+                Dim runResult = Await _compressableFolderService.CompressFolder(folder)
+                If Not runResult.HadWork Then Continue For
 
-                                   'For Each poorext In folder.PoorlyCompressedFiles
-                                   '    Debug.WriteLine($"{poorext.extension} : {poorext.totalFiles} with ratio of {poorext.cRatio}")
-                                   'Next
+                foldersWithCompressionWork.Add(folder)
+                Await _compressableFolderService.AnalyseFolderAsync(folder)
 
-                                   Return True
-                               End Function)
-            End If
-        Next
-        Compressing = False
+                If runResult.Completed AndAlso _settingsService.AppSettings.ShowNotifications Then
+                    Application.GetService(Of TrayNotifierService)().Notify_Compressed(folder.DisplayName, folder.UncompressedBytes - folder.CompressedBytes, folder.CompressionRatio)
+                End If
 
-        For Each folder In Folders.Where(Function(f) f.CompressionOptions.WatchFolderForChanges)
-            Dim wasCompressedInCurrentBatch = foldersToCompress.Contains(folder) AndAlso folder.IsFreshlyCompressed
-            AddOrUpdateFolderWatcher(folder, wasCompressedInCurrentBatch)
-        Next
+                Dim watcherTarget = previousWatcherTarget
+                If runResult.Completed OrElse (runResult.StopChoice.HasValue AndAlso runResult.StopChoice.Value = CompressionStopChoice.SaveProgress) Then
+                    watcherTarget = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
+                End If
 
-        RemoveFolderCommand.NotifyCanExecuteChanged()
-        Core.SharedMethods.RestoreSleep()
+                watcherTargetOverrides(folder) = watcherTarget
+                Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, runResult.Completed, targetCompressionLevel:=watcherTarget)
+            Next
+
+            For Each folder In Folders.Where(Function(item) item.CompressionOptions.WatchFolderForChanges)
+                Dim isAlreadyWatched = _watcher.WatchedFolders.Any(Function(watched) String.Equals(watched.Folder, folder.FolderName, StringComparison.OrdinalIgnoreCase))
+                If isAlreadyWatched AndAlso Not foldersWithCompressionWork.Contains(folder) Then Continue For
+
+                Dim wasCompressedInCurrentBatch = foldersToCompress.Contains(folder) AndAlso folder.IsFreshlyCompressed
+                Dim targetOverride = Core.WOFCompressionAlgorithm.NO_COMPRESSION
+                watcherTargetOverrides.TryGetValue(folder, targetOverride)
+                AddOrUpdateFolderWatcher(folder, wasCompressedInCurrentBatch, targetOverride)
+            Next
+        Catch ex As Exception
+            capturedException = ex
+        Finally
+            Compressing = False
+            RemoveFolderCommand.NotifyCanExecuteChanged()
+            Core.SharedMethods.RestoreSleep()
+        End Try
+
         Await _watcher.EnableBackgrounding()
+        If capturedException IsNot Nothing Then
+            ExceptionDispatchInfo.Capture(capturedException).Throw()
+        End If
     End Function
 
 
@@ -280,7 +318,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
     End Function
 
 
-    Public Sub AddOrUpdateFolderWatcher(folder As CompressableFolder, wasCompressedInCurrentBatch As Boolean)
+    Public Sub AddOrUpdateFolderWatcher(folder As CompressableFolder, wasCompressedInCurrentBatch As Boolean, Optional targetOverride As Core.WOFCompressionAlgorithm = Core.WOFCompressionAlgorithm.NO_COMPRESSION)
         HomeViewModelLog.AddingFolderToWatcher(_logger, folder.FolderName)
 
         Dim newWatched = New Watcher.WatchedFolder(folder.FolderName, folder.DisplayName)
@@ -292,7 +330,9 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         newWatched.LastCheckedSize = folder.CompressedBytes
         newWatched.LastSystemModifiedDate = DateTime.Now
         Dim existingWatched = _watcher.WatchedFolders.FirstOrDefault(Function(w) w.Folder = folder.FolderName)
-        If wasCompressedInCurrentBatch Then
+        If targetOverride <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
+            newWatched.CompressionLevel = targetOverride
+        ElseIf wasCompressedInCurrentBatch Then
             newWatched.CompressionLevel = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
         ElseIf existingWatched IsNot Nothing Then
             newWatched.CompressionLevel = existingWatched.CompressionLevel

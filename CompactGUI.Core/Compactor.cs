@@ -1,5 +1,4 @@
-﻿
-using CompactGUI.Logging.Core;
+﻿using CompactGUI.Logging.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
@@ -25,10 +24,14 @@ public sealed class Compactor : ICompressor, IDisposable
     private long totalProcessedBytes = 0;
     private readonly SemaphoreSlim pauseSemaphore = new SemaphoreSlim(1, 2);
     private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private readonly ConcurrentDictionary<string, WOFCompressionAlgorithm> processedFiles = new(StringComparer.OrdinalIgnoreCase);
 
     private ILogger<Compactor> _logger;
 
     private Analyser _analyser;
+
+    public IReadOnlyDictionary<string, WOFCompressionAlgorithm> ProcessedFiles => processedFiles;
+    public int WorkItemCount { get; private set; }
 
     public Compactor(string folderPath, WOFCompressionAlgorithm compressionLevel, string[] excludedFileTypes, Analyser analyser, ILogger<Compactor>? logger = null)
     {
@@ -51,15 +54,24 @@ public sealed class Compactor : ICompressor, IDisposable
     }
 
 
-    public async Task<bool> RunAsync(List<string> filesList, IProgress<CompressionProgress>? progressMonitor = null, int maxParallelism = 1)
+    public async Task<bool> RunAsync(List<string>? filesList, IProgress<CompressionProgress>? progressMonitor = null, int maxParallelism = 1)
     {
         if(cancellationTokenSource.IsCancellationRequested) { return false; }
 
         CompactorLog.BuildingWorkingFilesList(_logger, workingDirectory);
-        var workingFiles = await BuildWorkingFilesList().ConfigureAwait(false);
+        var workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+        WorkItemCount = workingFiles.Count;
         long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
 
         totalProcessedBytes = 0;
+        processedFiles.Clear();
+
+        if (workingFiles.Count == 0)
+        {
+            progressMonitor?.Report(new CompressionProgress(100, string.Empty));
+            CompactorLog.CompressionCompleted(_logger, 0);
+            return false;
+        }
 
         var sw = Stopwatch.StartNew();
 
@@ -101,8 +113,15 @@ public sealed class Compactor : ICompressor, IDisposable
         pauseSemaphore.Release();
 
         var res = WOFCompressFile(file.FileName);
+        if (res == 0)
+        {
+            processedFiles.TryAdd(file.FileName, file.OriginalCompressionMode);
+        }
         Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
-        progressMonitor?.Report(new CompressionProgress((int)((double)totalProcessedBytes / totalFilesSize * 100.0), file.FileName));
+        var progressPercent = totalFilesSize <= 0
+            ? 100
+            : (int)((double)totalProcessedBytes / totalFilesSize * 100.0);
+        progressMonitor?.Report(new CompressionProgress(progressPercent, file.FileName));
 
     }
 
@@ -122,11 +141,19 @@ public sealed class Compactor : ICompressor, IDisposable
         }
     }
 
-    public async Task<IEnumerable<FileDetails>> BuildWorkingFilesList()
+    public async Task<IEnumerable<FileDetails>> BuildWorkingFilesList(IReadOnlyCollection<string>? filesList = null)
     {
+        if (filesList is { Count: > 0 })
+        {
+            return filesList
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(File.Exists)
+                .Select(file => new FileDetails(file, new FileInfo(file).Length, WOFCompressionAlgorithm.NO_COMPRESSION))
+                .ToList();
+        }
+
         uint clusterSize = SharedMethods.GetClusterSize(workingDirectory);
 
-        
         var analysedFiles = await _analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token) ?? [];
 
         return analysedFiles
@@ -135,10 +162,9 @@ public sealed class Compactor : ICompressor, IDisposable
                 && fl.UncompressedSize > clusterSize
                 && ((fl.FileInfo != null && !excludedFileExtensions.Contains(fl.FileInfo.Extension)) || excludedFileExtensions.Contains(fl.FileName))
             )
-            .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize))
+            .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize, fl.CompressionMode))
             .ToList();
     }
-
 
 
 
@@ -176,6 +202,6 @@ public sealed class Compactor : ICompressor, IDisposable
     }
 
 
-    public readonly record struct FileDetails(string FileName, long UncompressedSize);
+    public readonly record struct FileDetails(string FileName, long UncompressedSize, WOFCompressionAlgorithm OriginalCompressionMode);
 
 }

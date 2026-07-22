@@ -281,7 +281,7 @@ Public Class FolderStatusToColorConverter : Implements IValueConverter
         Select Case status
             Case ActionState.Idle
                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#92e7f1"))
-            Case ActionState.Analysing, ActionState.Working, ActionState.Paused
+            Case ActionState.Analysing, ActionState.Working, ActionState.Paused, ActionState.Undoing
                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#F1CE92"))
             Case ActionState.Results
                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#92F1AB"))
@@ -305,6 +305,8 @@ Public Class FolderStatusToStringConverter : Implements IValueConverter
                 Return LanguageHelper.GetString("Status_Analysing")
             Case ActionState.Working, ActionState.Paused
                 Return LanguageHelper.GetString("Status_Working")
+            Case ActionState.Undoing
+                Return LanguageHelper.GetString("Status_Undoing")
             Case ActionState.Results
                 Return LanguageHelper.GetString("Status_Compressed")
             Case Else
@@ -406,7 +408,7 @@ Public Class FolderActionStateWorkingToVisibilityConverter
     Public Function Convert(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.Convert
         Dim status = CType(value, ActionState)
         Select Case status
-            Case ActionState.Working
+            Case ActionState.Working, ActionState.Undoing
                 Return Visibility.Visible
             Case Else
                 Return Visibility.Collapsed
