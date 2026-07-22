@@ -267,6 +267,8 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 Dim existingWatched = _watcher.WatchedFolders.FirstOrDefault(Function(watched) watched.Folder = folder.FolderName)
                 Dim previousWatcherTarget = If(existingWatched?.CompressionLevel, Core.WOFCompressionAlgorithm.NO_COMPRESSION)
 
+                'Keep the orchestration on the WPF synchronization context. The compressor performs
+                'its own asynchronous file work, while folder state and commands remain UI-thread-owned.
                 HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
                 Dim runResult = Await _compressableFolderService.CompressFolder(folder)
                 If Not runResult.HadWork Then Continue For
