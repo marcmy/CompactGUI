@@ -32,7 +32,6 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
             Dim value As FolderViewModel = Nothing
             Return If(_folderViewModels.TryGetValue(SelectedFolder, value), value, Nothing)
-
         End Get
     End Property
 
@@ -268,27 +267,24 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 Dim existingWatched = _watcher.WatchedFolders.FirstOrDefault(Function(watched) watched.Folder = folder.FolderName)
                 Dim previousWatcherTarget = If(existingWatched?.CompressionLevel, Core.WOFCompressionAlgorithm.NO_COMPRESSION)
 
-                Await Task.Run(Async Function()
-                                   HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
-                                   Dim runResult = Await _compressableFolderService.CompressFolder(folder)
-                                   If Not runResult.HadWork Then Return True
+                HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
+                Dim runResult = Await _compressableFolderService.CompressFolder(folder)
+                If Not runResult.HadWork Then Continue For
 
-                                   foldersWithCompressionWork.Add(folder)
-                                   Await _compressableFolderService.AnalyseFolderAsync(folder)
+                foldersWithCompressionWork.Add(folder)
+                Await _compressableFolderService.AnalyseFolderAsync(folder)
 
-                                   If runResult.Completed AndAlso _settingsService.AppSettings.ShowNotifications Then
-                                       Application.GetService(Of TrayNotifierService)().Notify_Compressed(folder.DisplayName, folder.UncompressedBytes - folder.CompressedBytes, folder.CompressionRatio)
-                                   End If
+                If runResult.Completed AndAlso _settingsService.AppSettings.ShowNotifications Then
+                    Application.GetService(Of TrayNotifierService)().Notify_Compressed(folder.DisplayName, folder.UncompressedBytes - folder.CompressedBytes, folder.CompressionRatio)
+                End If
 
-                                   Dim watcherTarget = previousWatcherTarget
-                                   If runResult.Completed OrElse (runResult.StopChoice.HasValue AndAlso runResult.StopChoice.Value = CompressionStopChoice.SaveProgress) Then
-                                       watcherTarget = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
-                                   End If
+                Dim watcherTarget = previousWatcherTarget
+                If runResult.Completed OrElse (runResult.StopChoice.HasValue AndAlso runResult.StopChoice.Value = CompressionStopChoice.SaveProgress) Then
+                    watcherTarget = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
+                End If
 
-                                   watcherTargetOverrides(folder) = watcherTarget
-                                   Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, runResult.Completed, targetCompressionLevel:=watcherTarget)
-                                   Return True
-                               End Function)
+                watcherTargetOverrides(folder) = watcherTarget
+                Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, runResult.Completed, targetCompressionLevel:=watcherTarget)
             Next
 
             For Each folder In Folders.Where(Function(item) item.CompressionOptions.WatchFolderForChanges)
