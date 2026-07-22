@@ -1,5 +1,4 @@
-﻿
-using CompactGUI.Logging.Core;
+﻿using CompactGUI.Logging.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
@@ -59,11 +58,18 @@ public sealed class Compactor : ICompressor, IDisposable
         if(cancellationTokenSource.IsCancellationRequested) { return false; }
 
         CompactorLog.BuildingWorkingFilesList(_logger, workingDirectory);
-        var workingFiles = await BuildWorkingFilesList(filesList).ConfigureAwait(false);
+        var workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
         long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
 
         totalProcessedBytes = 0;
         processedFiles.Clear();
+
+        if (workingFiles.Count == 0)
+        {
+            progressMonitor?.Report(new CompressionProgress(100, string.Empty));
+            CompactorLog.CompressionCompleted(_logger, 0);
+            return false;
+        }
 
         var sw = Stopwatch.StartNew();
 
@@ -110,7 +116,10 @@ public sealed class Compactor : ICompressor, IDisposable
             processedFiles.TryAdd(file.FileName, file.OriginalCompressionMode);
         }
         Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
-        progressMonitor?.Report(new CompressionProgress((int)((double)totalProcessedBytes / totalFilesSize * 100.0), file.FileName));
+        var progressPercent = totalFilesSize <= 0
+            ? 100
+            : (int)((double)totalProcessedBytes / totalFilesSize * 100.0);
+        progressMonitor?.Report(new CompressionProgress(progressPercent, file.FileName));
 
     }
 
