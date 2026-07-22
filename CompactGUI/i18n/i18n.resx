@@ -608,4 +608,49 @@ Are you sure you want to exit?</value>
   <data name="Status_Undoing" xml:space="preserve">
     <value>Undoing compression</value>
   </data>
+  <data name="CompressionDetails_Title" xml:space="preserve">
+    <value>Details</value>
+  </data>
+  <data name="CompressionDetails_ProcessedFiles" xml:space="preserve">
+    <value>Files processed</value>
+  </data>
+  <data name="CompressionDetails_ProcessedData" xml:space="preserve">
+    <value>Data processed</value>
+  </data>
+  <data name="CompressionDetails_FailedFiles" xml:space="preserve">
+    <value>Failed</value>
+  </data>
+  <data name="CompressionDetails_AtomicHint" xml:space="preserve">
+    <value>Windows reports each file when it starts and finishes, so an active file uses a moving indicator instead of an estimated percentage.</value>
+  </data>
+  <data name="CompressionDetails_Status" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="CompressionDetails_File" xml:space="preserve">
+    <value>File</value>
+  </data>
+  <data name="CompressionDetails_Reason" xml:space="preserve">
+    <value>Failure reason</value>
+  </data>
+  <data name="CompressionDetails_Size" xml:space="preserve">
+    <value>Size</value>
+  </data>
+  <data name="CompressionDetails_OnDisk" xml:space="preserve">
+    <value>On disk</value>
+  </data>
+  <data name="CompressionDetails_Progress" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="CompressionDetails_Status_Queued" xml:space="preserve">
+    <value>Queued</value>
+  </data>
+  <data name="CompressionDetails_Status_Processing" xml:space="preserve">
+    <value>Working</value>
+  </data>
+  <data name="CompressionDetails_Status_Completed" xml:space="preserve">
+    <value>Complete</value>
+  </data>
+  <data name="CompressionDetails_Status_Failed" xml:space="preserve">
+    <value>Failed</value>
+  </data>
 </root>

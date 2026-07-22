@@ -43,6 +43,7 @@ Public Class CompressableFolderService
 
 
     Public Sub RequestCompressionStop(folder As CompressableFolder, choice As CompressionStopChoice)
+        If choice = CompressionStopChoice.Cancel Then Return
         If folder Is Nothing OrElse Not TypeOf folder.Compressor Is Compactor Then Return
         If folder.FolderActionState <> ActionState.Working AndAlso folder.FolderActionState <> ActionState.Paused Then Return
 
