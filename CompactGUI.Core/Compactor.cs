@@ -31,6 +31,7 @@ public sealed class Compactor : ICompressor, IDisposable
     private Analyser _analyser;
 
     public IReadOnlyDictionary<string, WOFCompressionAlgorithm> ProcessedFiles => processedFiles;
+    public int WorkItemCount { get; private set; }
 
     public Compactor(string folderPath, WOFCompressionAlgorithm compressionLevel, string[] excludedFileTypes, Analyser analyser, ILogger<Compactor>? logger = null)
     {
@@ -59,6 +60,7 @@ public sealed class Compactor : ICompressor, IDisposable
 
         CompactorLog.BuildingWorkingFilesList(_logger, workingDirectory);
         var workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+        WorkItemCount = workingFiles.Count;
         long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
 
         totalProcessedBytes = 0;
