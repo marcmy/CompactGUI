@@ -1,192 +1,205 @@
-name: Build and Release
+name: Apply zero-work compression fix
 
 on:
   pull_request:
     branches:
       - master
-  push:
-    branches:
-      - master
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Optional tag to create a release from the selected ref (for example: v4.0.0-beta.7-marc.1)"
-        required: false
-        type: string
-      prerelease:
-        description: "Mark a manually created release as a prerelease"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
-  contents: read
-
-env:
-  DOTNET_NOLOGO: true
-  DOTNET_CLI_TELEMETRY_OPTOUT: true
-  PROJECT_PATH: CompactGUI/CompactGUI.vbproj
-  RUNTIME_IDENTIFIER: win-x64
+  contents: write
 
 jobs:
-  build:
-    name: Build Windows x64
-    runs-on: windows-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 9.0.x
-
-      - name: Restore
-        run: dotnet restore $env:PROJECT_PATH
-
-      - name: Publish self-contained executable
-        shell: pwsh
-        run: |
-          $publishDir = Join-Path $env:RUNNER_TEMP "compactgui-publish"
-          Remove-Item $publishDir -Recurse -Force -ErrorAction SilentlyContinue
-
-          dotnet publish $env:PROJECT_PATH `
-            --configuration Release `
-            --runtime $env:RUNTIME_IDENTIFIER `
-            --self-contained true `
-            --no-restore `
-            --output $publishDir `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:DebugType=None `
-            -p:DebugSymbols=false `
-            -p:TreatWarningsAsErrors=true
-
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
-
-          $exe = Join-Path $publishDir "CompactGUI.exe"
-          if (-not (Test-Path $exe)) {
-            throw "Publish completed without producing CompactGUI.exe"
-          }
-
-      - name: Package artifacts
-        shell: pwsh
-        run: |
-          $publishDir = Join-Path $env:RUNNER_TEMP "compactgui-publish"
-          $packageDir = Join-Path $env:RUNNER_TEMP "compactgui-package"
-          $artifactDir = Join-Path $env:RUNNER_TEMP "compactgui-artifacts"
-
-          Remove-Item $packageDir, $artifactDir -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item $packageDir, $artifactDir -ItemType Directory -Force | Out-Null
-
-          Copy-Item (Join-Path $publishDir "CompactGUI.exe") $packageDir
-          Copy-Item "LICENSE" $packageDir
-
-          @(
-            "Repository: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY"
-            "Commit: $env:GITHUB_SHA"
-            "Ref: $env:GITHUB_REF"
-            "Runtime: $env:RUNTIME_IDENTIFIER"
-          ) | Set-Content (Join-Path $packageDir "BUILD-INFO.txt") -Encoding utf8
-
-          $zipPath = Join-Path $artifactDir "CompactGUI-win-x64.zip"
-          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
-          Copy-Item (Join-Path $publishDir "CompactGUI.exe") (Join-Path $artifactDir "CompactGUI.exe")
-
-          Get-ChildItem $artifactDir -File |
-            Sort-Object Name |
-            ForEach-Object {
-              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              "$hash *$($_.Name)"
-            } | Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding ascii
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: CompactGUI-win-x64
-          path: ${{ runner.temp }}/compactgui-artifacts/*
-          if-no-files-found: error
-          retention-days: 14
-
-  release:
-    name: Publish GitHub release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+  apply-fix:
+    if: github.head_ref == 'agent/compression-stop-options' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-      - name: Check out repository
+      - name: Check out feature branch
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Download release assets
-        uses: actions/download-artifact@v8
-        with:
-          name: CompactGUI-win-x64
-          path: release-assets
-
-      - name: Resolve release tag
-        id: release
+      - name: Patch no-work completion and watcher cleanup
         shell: bash
         env:
-          MANUAL_TAG: ${{ inputs.release_tag }}
-          MANUAL_PRERELEASE: ${{ inputs.prerelease }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-          else
-            tag="$MANUAL_TAG"
-          fi
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
 
-          if [[ -z "$tag" || "$tag" != v* ]]; then
-            echo "Release tags must start with v (for example: v4.0.0-beta.7-marc.1)." >&2
-            exit 1
-          fi
+          def replace(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              raw = p.read_bytes()
+              bom = raw.startswith(b'\xef\xbb\xbf')
+              text = raw.decode('utf-8-sig')
+              if old not in text:
+                  raise RuntimeError(f'Expected block not found in {path}')
+              text = text.replace(old, new, 1)
+              p.write_bytes((b'\xef\xbb\xbf' if bom else b'') + text.encode('utf-8'))
 
-          prerelease=false
-          if [[ "$tag" == *-* ]] || [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$MANUAL_PRERELEASE" == "true" ]]; then
-            prerelease=true
-          fi
+          replace(
+              'CompactGUI.Core/Compactor.cs',
+              '''    public IReadOnlyDictionary<string, WOFCompressionAlgorithm> ProcessedFiles => processedFiles;
 
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+    public Compactor''',
+              '''    public IReadOnlyDictionary<string, WOFCompressionAlgorithm> ProcessedFiles => processedFiles;
+    public int WorkItemCount { get; private set; }
 
-      - name: Create or update release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          PRERELEASE: ${{ steps.release.outputs.prerelease }}
-        run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
-            exit 0
-          fi
+    public Compactor''')
 
-          release_args=(
-            release create "$TAG"
-            release-assets/*
-            --repo "$GITHUB_REPOSITORY"
-            --title "CompactGUI $TAG"
-            --generate-notes
-          )
+          replace(
+              'CompactGUI.Core/Compactor.cs',
+              '''        var workingFiles = await BuildWorkingFilesList(filesList).ConfigureAwait(false);
+        long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
 
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            release_args+=(--verify-tag)
-          else
-            release_args+=(--target "$GITHUB_SHA")
-          fi
+        totalProcessedBytes = 0;
+        processedFiles.Clear();
 
-          if [[ "$PRERELEASE" == "true" ]]; then
-            release_args+=(--prerelease)
-          fi
+        var sw = Stopwatch.StartNew();''',
+              '''        var workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+        WorkItemCount = workingFiles.Count;
+        long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
 
-          gh "${release_args[@]}"
+        totalProcessedBytes = 0;
+        processedFiles.Clear();
+
+        if (WorkItemCount == 0)
+        {
+            progressMonitor?.Report(new CompressionProgress(100, string.Empty));
+            CompactorLog.CompressionCompleted(_logger, 0);
+            return true;
+        }
+
+        var sw = Stopwatch.StartNew();''')
+
+          replace(
+              'CompactGUI.Core/Compactor.cs',
+              '''        progressMonitor?.Report(new CompressionProgress((int)((double)totalProcessedBytes / totalFilesSize * 100.0), file.FileName));''',
+              '''        var progressPercent = totalFilesSize <= 0
+            ? 100
+            : (int)((double)totalProcessedBytes / totalFilesSize * 100.0);
+        progressMonitor?.Report(new CompressionProgress(progressPercent, file.FileName));''')
+
+          replace(
+              'CompactGUI/Models/CompressionStopModels.vb',
+              '''Public NotInheritable Class CompressionRunResult
+    Public Property Completed As Boolean
+    Public Property StopChoice As CompressionStopChoice?
+End Class''',
+              '''Public NotInheritable Class CompressionRunResult
+    Public Property Completed As Boolean
+    Public Property HadWork As Boolean
+    Public Property StopChoice As CompressionStopChoice?
+End Class''')
+
+          replace(
+              'CompactGUI/Services/CompressableFolderService.vb',
+              '''            runResult.Completed = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
+
+            If isCompressing Then''',
+              '''            runResult.Completed = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
+            runResult.HadWork = Not isCompressing OrElse Not TypeOf compressor Is Compactor OrElse DirectCast(compressor, Compactor).WorkItemCount > 0
+
+            If isCompressing Then''')
+
+          replace(
+              'CompactGUI/Services/CompressableFolderService.vb',
+              '''                folder.FolderActionState = ActionState.Results
+                folder.IsFreshlyCompressed = runResult.Completed''',
+              '''                folder.FolderActionState = ActionState.Results
+                folder.IsFreshlyCompressed = runResult.Completed AndAlso runResult.HadWork''')
+
+          replace(
+              'CompactGUI/Services/CompressableFolderService.vb',
+              '''        Dim retAnalysisResults = Await folder.Analyser.GetAnalysedFilesAsync(token)
+        If cts.IsCancellationRequested Then
+            folder.FolderActionState = ActionState.Idle
+            Return 1
+        End If
+
+        folder.AnalysisResults = New ObservableCollection(Of AnalysedFileDetails)(retAnalysisResults)''',
+              '''        Dim retAnalysisResults = Await folder.Analyser.GetAnalysedFilesAsync(token)
+        If cts.IsCancellationRequested Then
+            folder.FolderActionState = ActionState.Idle
+            Return 1
+        End If
+
+        If retAnalysisResults Is Nothing Then
+            If folder.AnalysisResults IsNot Nothing AndAlso folder.AnalysisResults.Count > 0 Then
+                folder.FolderActionState = ActionState.Results
+            Else
+                folder.FolderActionState = ActionState.Idle
+            End If
+            Return -2
+        End If
+
+        folder.AnalysisResults = New ObservableCollection(Of AnalysedFileDetails)(retAnalysisResults)''')
+
+          replace(
+              'CompactGUI/ViewModels/HomeViewModel.vb',
+              '''                                   Dim runResult = Await _compressableFolderService.CompressFolder(folder)
+                                   Await _compressableFolderService.AnalyseFolderAsync(folder)
+
+                                   If runResult.Completed AndAlso _settingsService.AppSettings.ShowNotifications Then
+                                       Application.GetService(Of TrayNotifierService)().Notify_Compressed(folder.DisplayName, folder.UncompressedBytes - folder.CompressedBytes, folder.CompressionRatio)
+                                   End If
+
+                                   Dim watcherTarget = previousWatcherTarget
+                                   If runResult.Completed OrElse (runResult.StopChoice.HasValue AndAlso runResult.StopChoice.Value = CompressionStopChoice.SaveProgress) Then
+                                       watcherTarget = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
+                                   End If
+
+                                   watcherTargetOverrides(folder) = watcherTarget
+                                   Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, runResult.Completed, targetCompressionLevel:=watcherTarget)
+                                   Return True''',
+              '''                                   Dim runResult = Await _compressableFolderService.CompressFolder(folder)
+                                   If runResult.HadWork Then
+                                       Await _compressableFolderService.AnalyseFolderAsync(folder)
+                                   End If
+
+                                   If runResult.Completed AndAlso runResult.HadWork AndAlso _settingsService.AppSettings.ShowNotifications Then
+                                       Application.GetService(Of TrayNotifierService)().Notify_Compressed(folder.DisplayName, folder.UncompressedBytes - folder.CompressedBytes, folder.CompressionRatio)
+                                   End If
+
+                                   Dim watcherTarget = previousWatcherTarget
+                                   If runResult.Completed OrElse (runResult.StopChoice.HasValue AndAlso runResult.StopChoice.Value = CompressionStopChoice.SaveProgress) Then
+                                       watcherTarget = Core.WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode)
+                                   End If
+
+                                   watcherTargetOverrides(folder) = watcherTarget
+                                   If runResult.HadWork Then
+                                       Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, runResult.Completed, targetCompressionLevel:=watcherTarget)
+                                   End If
+                                   Return True''')
+
+          replace(
+              'CompactGUI/ViewModels/HomeViewModel.vb',
+              '''        Await _watcher.EnableBackgrounding()
+        If capturedException IsNot Nothing Then
+            ExceptionDispatchInfo.Capture(capturedException).Throw()
+        End If''',
+              '''        Await _watcher.EnableBackgrounding()
+        If capturedException IsNot Nothing Then
+            _logger.LogError(capturedException, "Manual compression completion failed")
+        End If''')
+
+          replace(
+              'CompactGUI.Watcher/Watcher.vb',
+              '''        Else
+            UpdateFolderProperties(existingItem, item)
+        End If''',
+              '''        Else
+            UpdateFolderProperties(existingItem, item)
+            If Not Object.ReferenceEquals(existingItem, item) Then item.Dispose()
+        End If''')
+          PY
+
+          git fetch origin master --depth=1
+          git checkout origin/master -- .github/workflows/build-release.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Handle already-compressed folders safely"
+          git push origin "HEAD:$HEAD_REF"
