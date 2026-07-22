@@ -74,6 +74,7 @@ Public Class CompressableFolderService
 
         Try
             runResult.Completed = Await compressor.RunAsync(filesList, progress, GetThreadCount(folder))
+            runResult.HadWork = Not isCompressing OrElse Not TypeOf compressor Is Compactor OrElse DirectCast(compressor, Compactor).WorkItemCount > 0
 
             If isCompressing Then
                 Dim stopChoice As CompressionStopChoice
@@ -90,7 +91,7 @@ Public Class CompressableFolderService
                 End If
 
                 folder.FolderActionState = ActionState.Results
-                folder.IsFreshlyCompressed = runResult.Completed
+                folder.IsFreshlyCompressed = runResult.Completed AndAlso runResult.HadWork
             Else
                 folder.FolderActionState = ActionState.Idle
                 folder.IsFreshlyCompressed = False
