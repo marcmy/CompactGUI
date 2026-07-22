@@ -4,25 +4,28 @@ on:
   pull_request:
     branches:
       - master
+  push:
+    branches:
+      - agent/compression-stop-options
 
 permissions:
   contents: write
 
 jobs:
   apply-fix:
-    if: github.head_ref == 'agent/compression-stop-options' && github.event.pull_request.head.repo.full_name == github.repository
+    if: (github.event_name == 'push' && github.ref_name == 'agent/compression-stop-options') || (github.event_name == 'pull_request' && github.head_ref == 'agent/compression-stop-options' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Check out feature branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Patch no-work completion and watcher cleanup
         shell: bash
         env:
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
           python - <<'PY'
