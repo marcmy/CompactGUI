@@ -258,6 +258,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         HomeViewModelLog.StartingBatchCompression(_logger, foldersToCompress.Count)
 
         Dim watcherTargetOverrides As New Dictionary(Of CompressableFolder, Core.WOFCompressionAlgorithm)()
+        Dim foldersWithCompressionWork As New HashSet(Of CompressableFolder)()
         Dim capturedException As Exception = Nothing
 
         Try
@@ -270,6 +271,9 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 Await Task.Run(Async Function()
                                    HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
                                    Dim runResult = Await _compressableFolderService.CompressFolder(folder)
+                                   If Not runResult.HadWork Then Return True
+
+                                   foldersWithCompressionWork.Add(folder)
                                    Await _compressableFolderService.AnalyseFolderAsync(folder)
 
                                    If runResult.Completed AndAlso _settingsService.AppSettings.ShowNotifications Then
@@ -288,6 +292,9 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
             Next
 
             For Each folder In Folders.Where(Function(item) item.CompressionOptions.WatchFolderForChanges)
+                Dim isAlreadyWatched = _watcher.WatchedFolders.Any(Function(watched) String.Equals(watched.Folder, folder.FolderName, StringComparison.OrdinalIgnoreCase))
+                If isAlreadyWatched AndAlso Not foldersWithCompressionWork.Contains(folder) Then Continue For
+
                 Dim wasCompressedInCurrentBatch = foldersToCompress.Contains(folder) AndAlso folder.IsFreshlyCompressed
                 Dim targetOverride = Core.WOFCompressionAlgorithm.NO_COMPRESSION
                 watcherTargetOverrides.TryGetValue(folder, targetOverride)
