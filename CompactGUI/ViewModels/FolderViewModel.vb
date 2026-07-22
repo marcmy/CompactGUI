@@ -125,6 +125,12 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
     End Sub
 
     Private Sub OnFolderPropertyChanged(sender As Object, e As PropertyChangedEventArgs)
+        Dim dispatcher = Application.Current?.Dispatcher
+        If dispatcher IsNot Nothing AndAlso Not dispatcher.CheckAccess() Then
+            dispatcher.BeginInvoke(Sub() OnFolderPropertyChanged(sender, e))
+            Return
+        End If
+
         If e.PropertyName = NameOf(Folder.FolderActionState) Then
             OnPropertyChanged(NameOf(IsAnalysing))
             OnPropertyChanged(NameOf(IsNotResultsOrAnalysing))
