@@ -20,32 +20,165 @@
         </DataTemplate>
 
         <DataTemplate x:Key="CompressingTemplate">
-            <StackPanel Margin="0,30"
-                        d:DataContext="{d:DesignInstance Type=local:FolderViewModel}"
-                        DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
-                <TextBlock Text="{Binding Folder.FolderActionState}"   
-                           HorizontalAlignment="Left"
-                            FontSize="16" FontWeight="SemiBold" />
-                <TextBlock Margin="0 5 0 0" Text="{Binding CompressionProgressFile, Mode=OneWay, Converter={StaticResource TokenisedFolderPathConverter}}"
-           HorizontalAlignment="Left" Foreground="{StaticResource AccentFillColorDisabledBrush}" 
-           TextTrimming="CharacterEllipsis" />
-                <ProgressBar Height="30"
-                             Margin="0 50 0 50"
-                             Background="{StaticResource CardBackground}"
-                             Foreground="#92F1AB"
-                             Value="{Binding CompressionProgress, Mode=OneWay}" />
-                
+            <Grid Margin="0,24"
+                  d:DataContext="{d:DesignInstance Type=local:FolderViewModel}"
+                  DataContext="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" >
-                    <ui:Button Width="80" Height="35" Margin="0 0 20 0" Command="{Binding PauseCommand}">
-                        <ui:SymbolIcon Symbol="{Binding Folder.FolderActionState, Converter={StaticResource FolderWorkingStateToPauseSymbolConverter}}" Filled="True"/>
+                <StackPanel>
+                    <TextBlock Text="{Binding Folder.FolderActionState, Converter={StaticResource FolderStatusToStringConverter}}"
+                               HorizontalAlignment="Left"
+                               FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Margin="0,5,0,0"
+                               HorizontalAlignment="Left"
+                               Foreground="{StaticResource AccentFillColorDisabledBrush}"
+                               Text="{Binding CompressionProgressFile, Mode=OneWay, Converter={StaticResource TokenisedFolderPathConverter}}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding CompressionProgressFile}" />
+                </StackPanel>
+
+                <Grid Grid.Row="1" Margin="0,20,0,0">
+                    <ProgressBar Height="18"
+                                 Background="{StaticResource CardBackground}"
+                                 Foreground="#92F1AB"
+                                 Value="{Binding CompressionProgress, Mode=OneWay}" />
+                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="11" FontWeight="SemiBold"
+                               Foreground="White"
+                               Text="{Binding CompressionProgress, StringFormat={}{0}%}" />
+                </Grid>
+
+                <UniformGrid Grid.Row="2" Margin="0,12,0,18" Columns="3">
+                    <Border Margin="0,0,6,0" Padding="10,7" Background="#0CFFFFFF" CornerRadius="5">
+                        <StackPanel>
+                            <TextBlock Foreground="{StaticResource AccentFillColorDisabledBrush}"
+                                       Text="{local:Localize CompressionDetails_ProcessedFiles}" />
+                            <TextBlock Margin="0,3,0,0" FontSize="15" FontWeight="SemiBold">
+                                <Run Text="{Binding CompressionProcessedFiles}" />
+                                <Run Text=" / " />
+                                <Run Text="{Binding CompressionTotalFiles}" />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="3,0" Padding="10,7" Background="#0CFFFFFF" CornerRadius="5">
+                        <StackPanel>
+                            <TextBlock Foreground="{StaticResource AccentFillColorDisabledBrush}"
+                                       Text="{local:Localize CompressionDetails_ProcessedData}" />
+                            <TextBlock Margin="0,3,0,0" FontSize="15" FontWeight="SemiBold">
+                                <Run Text="{Binding CompressionProcessedBytes, Converter={StaticResource BytesToReadableConverter}}" />
+                                <Run Text=" / " />
+                                <Run Text="{Binding CompressionTotalBytes, Converter={StaticResource BytesToReadableConverter}}" />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                    <Border Margin="6,0,0,0" Padding="10,7" Background="#0CFFFFFF" CornerRadius="5">
+                        <StackPanel>
+                            <TextBlock Foreground="{StaticResource AccentFillColorDisabledBrush}"
+                                       Text="{local:Localize CompressionDetails_FailedFiles}" />
+                            <TextBlock Margin="0,3,0,0"
+                                       FontSize="15" FontWeight="SemiBold"
+                                       Text="{Binding CompressionFailedFiles}" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <StackPanel Grid.Row="3" HorizontalAlignment="Center" Orientation="Horizontal">
+                    <ui:Button Width="80" Height="35" Margin="0,0,20,0" Command="{Binding PauseCommand}">
+                        <ui:SymbolIcon Filled="True"
+                                       Symbol="{Binding Folder.FolderActionState, Converter={StaticResource FolderWorkingStateToPauseSymbolConverter}}" />
                     </ui:Button>
                     <ui:Button Width="80" Height="35" Command="{Binding CancelCommand}">
-                        <ui:SymbolIcon Symbol="Dismiss12" Foreground="{StaticResource PaletteRedBrush}"/>
+                        <ui:SymbolIcon Foreground="{StaticResource PaletteRedBrush}" Symbol="Dismiss12" />
                     </ui:Button>
                 </StackPanel>
-                
-            </StackPanel>
+
+                <Expander Grid.Row="4" Margin="0,20,0,0"
+                          IsExpanded="{Binding IsCompressionDetailsExpanded, Mode=TwoWay}">
+                    <Expander.Header>
+                        <TextBlock FontSize="14" FontWeight="SemiBold">
+                            <Run Text="{local:Localize CompressionDetails_Title}" />
+                            <Run Text=" (" />
+                            <Run Text="{Binding CompressionTotalFiles}" />
+                            <Run Text=")" />
+                        </TextBlock>
+                    </Expander.Header>
+                    <Border Margin="0,8,0,0" Padding="8"
+                            Background="#08000000" BorderBrush="#18FFFFFF"
+                            BorderThickness="1" CornerRadius="6">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Margin="4,2,4,8"
+                                       Foreground="{StaticResource AccentFillColorDisabledBrush}"
+                                       Text="{local:Localize CompressionDetails_AtomicHint}"
+                                       TextWrapping="Wrap" />
+
+                            <DataGrid Grid.Row="1" Height="270"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False" CanUserDeleteRows="False"
+                                      EnableColumnVirtualization="True" EnableRowVirtualization="True"
+                                      GridLinesVisibility="None" HeadersVisibility="Column"
+                                      IsReadOnly="True" ItemsSource="{Binding CompressionFiles}"
+                                      RowHeaderWidth="0" RowHeight="28"
+                                      ScrollViewer.CanContentScroll="True"
+                                      SelectedItem="{Binding CurrentCompressionFile, Mode=OneWay}"
+                                      SelectionChanged="CompressionDetailsGrid_SelectionChanged"
+                                      SelectionMode="Single"
+                                      VirtualizingPanel.IsVirtualizing="True"
+                                      VirtualizingPanel.VirtualizationMode="Recycling">
+                                <DataGrid.Columns>
+                                    <DataGridTemplateColumn Width="110" Header="{local:Localize CompressionDetails_Status}">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                                    <Ellipse Width="7" Height="7" Margin="2,0,7,0"
+                                                             Fill="{Binding State, Mode=OneWay, Converter={StaticResource CompressionFileStateToBrushConverter}}" />
+                                                    <TextBlock Text="{Binding State, Mode=OneWay, Converter={StaticResource CompressionFileStateToStringConverter}}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Width="*" Header="{local:Localize CompressionDetails_File}"
+                                                        Binding="{Binding RelativePath, Mode=OneWay}" />
+                                    <DataGridTemplateColumn Width="190" Header="{local:Localize CompressionDetails_Reason}">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding FailureReason, Mode=OneWay}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding FailureReason, Mode=OneWay}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Width="85" Header="{local:Localize CompressionDetails_Size}"
+                                                        Binding="{Binding UncompressedSize, Mode=OneWay, Converter={StaticResource BytesToReadableConverter}}" />
+                                    <DataGridTextColumn Width="85" Header="{local:Localize CompressionDetails_OnDisk}"
+                                                        Binding="{Binding CompressedSize, Mode=OneWay, Converter={StaticResource BytesToReadableConverter}}" />
+                                    <DataGridTemplateColumn Width="95" Header="{local:Localize CompressionDetails_Progress}">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ProgressBar Width="72" Height="8"
+                                                             Background="{StaticResource CardBackground}"
+                                                             Foreground="{Binding State, Mode=OneWay, Converter={StaticResource CompressionFileStateToBrushConverter}}"
+                                                             IsIndeterminate="{Binding IsIndeterminate, Mode=OneWay}"
+                                                             Value="{Binding ProgressPercent, Mode=OneWay}" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </Border>
+                </Expander>
+            </Grid>
 
         </DataTemplate>
 

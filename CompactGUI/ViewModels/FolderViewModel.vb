@@ -1,4 +1,5 @@
 ﻿
+Imports System.Collections.ObjectModel
 Imports System.ComponentModel
 
 Imports CommunityToolkit.Mvvm.ComponentModel
@@ -21,11 +22,36 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
     Private _CompressionProgressFile As String
 
     <ObservableProperty>
+    Private _CompressionFiles As New ObservableCollection(Of CompressionFileProgressItem)
+
+    <ObservableProperty>
+    Private _CompressionProcessedBytes As Long
+
+    <ObservableProperty>
+    Private _CompressionTotalBytes As Long
+
+    <ObservableProperty>
+    Private _CompressionProcessedFiles As Integer
+
+    <ObservableProperty>
+    Private _CompressionTotalFiles As Integer
+
+    <ObservableProperty>
+    Private _CompressionFailedFiles As Integer
+
+    <ObservableProperty>
+    Private _IsCompressionDetailsExpanded As Boolean
+
+    <ObservableProperty>
+    Private _CurrentCompressionFile As CompressionFileProgressItem
+
+    <ObservableProperty>
     Private _AlwaysShowDetailsCompressionMode As Boolean = False
 
     Private ReadOnly _watcher As Watcher.Watcher
     Private ReadOnly _snackbarService As CustomSnackBarService
     Private ReadOnly _compressableFolderService As CompressableFolderService
+    Private ReadOnly _compressionFilesByPath As New Dictionary(Of String, CompressionFileProgressItem)(StringComparer.OrdinalIgnoreCase)
 
     Public Sub New(folder As CompressableFolder, watcher As Watcher.Watcher, snackbarService As CustomSnackBarService, compressableFolderService As CompressableFolderService)
         Me.Folder = folder
@@ -141,9 +167,62 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
             CancelCommand.NotifyCanExecuteChanged()
 
         ElseIf e.PropertyName = NameOf(Folder.CompressionProgress) Then
-            CompressionProgress = Folder.CompressionProgress.ProgressPercent
-            CompressionProgressFile = Folder.CompressionProgress.FileName.Replace(Folder.FolderName, "")
+            UpdateCompressionProgress(Folder.CompressionProgress)
 
+        End If
+    End Sub
+
+    Private Sub UpdateCompressionProgress(progress As Core.CompressionProgress)
+        If progress.WorkItems IsNot Nothing Then
+            _compressionFilesByPath.Clear()
+
+            Dim progressItems = progress.WorkItems.
+                Select(Function(workItem) New CompressionFileProgressItem(Folder.FolderName, workItem)).
+                ToList()
+
+            For Each item In progressItems
+                _compressionFilesByPath(item.FullPath) = item
+            Next
+
+            CompressionFiles = New ObservableCollection(Of CompressionFileProgressItem)(progressItems)
+            CompressionProgress = 0
+            CompressionProgressFile = String.Empty
+            CompressionProcessedBytes = 0
+            CompressionTotalBytes = progress.TotalBytes
+            CompressionProcessedFiles = 0
+            CompressionTotalFiles = progress.TotalFiles
+            CompressionFailedFiles = 0
+            CurrentCompressionFile = Nothing
+        End If
+
+        CompressionProgress = Math.Max(CompressionProgress, progress.ProgressPercent)
+        CompressionProcessedBytes = Math.Max(CompressionProcessedBytes, progress.ProcessedBytes)
+        CompressionProcessedFiles = Math.Max(CompressionProcessedFiles, progress.ProcessedFiles)
+        CompressionFailedFiles = Math.Max(CompressionFailedFiles, progress.FailedFiles)
+
+        If progress.TotalBytes > 0 Then CompressionTotalBytes = progress.TotalBytes
+        If progress.TotalFiles > 0 Then CompressionTotalFiles = progress.TotalFiles
+
+        If Not String.IsNullOrEmpty(progress.FileName) Then
+            CompressionProgressFile = progress.FileName.Replace(Folder.FolderName, "")
+
+            Dim progressItem As CompressionFileProgressItem = Nothing
+            If _compressionFilesByPath.TryGetValue(progress.FileName, progressItem) Then
+                If progress.FileState <> Core.CompressionFileState.None Then
+                    progressItem.State = progress.FileState
+                End If
+                If progress.CompressedSize.HasValue Then
+                    progressItem.CompressedSize = progress.CompressedSize
+                End If
+                If Not String.IsNullOrWhiteSpace(progress.FailureReason) Then
+                    progressItem.FailureReason = progress.FailureReason
+                End If
+                If progress.FileState = Core.CompressionFileState.Processing Then
+                    CurrentCompressionFile = progressItem
+                End If
+            End If
+        ElseIf progress.WorkItems Is Nothing Then
+            CompressionProgressFile = String.Empty
         End If
     End Sub
 
@@ -205,10 +284,12 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
             Return
         End If
 
+        Dim pausedForStopDialog = False
         If Folder.FolderActionState = ActionState.Working Then
             Try
                 Folder.Compressor?.Pause()
                 Folder.FolderActionState = ActionState.Paused
+                pausedForStopDialog = True
             Catch ex As OperationCanceledException
                 Return
             Catch ex As ObjectDisposedException
@@ -217,6 +298,21 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         End If
 
         Dim choice = Await Application.GetService(Of IWindowService)().ShowCompressionStopDialog(Folder.DisplayName)
+
+        If choice = CompressionStopChoice.Cancel Then
+            If pausedForStopDialog AndAlso Folder.FolderActionState = ActionState.Paused Then
+                Try
+                    Folder.Compressor?.Resume()
+                    Folder.FolderActionState = ActionState.Working
+                Catch ex As OperationCanceledException
+                    'The compression finished while the stop dialog was open.
+                Catch ex As ObjectDisposedException
+                    'The compression finished while the stop dialog was open.
+                End Try
+            End If
+            Return
+        End If
+
         _compressableFolderService.RequestCompressionStop(Folder, choice)
     End Function
 

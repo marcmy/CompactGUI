@@ -3,6 +3,7 @@ Public Enum CompressionStopChoice
     SaveProgress
     UndoProgress
     LeaveAsIs
+    Cancel
 End Enum
 
 ' Decisions shown when a folder has a saved resumable compression session.

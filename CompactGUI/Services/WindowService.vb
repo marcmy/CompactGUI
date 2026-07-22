@@ -43,23 +43,52 @@ Public Class WindowService
     End Function
 
     Public Async Function ShowCompressionStopDialog(folderName As String) As Task(Of CompressionStopChoice) Implements IWindowService.ShowCompressionStopDialog
-        Dim msgBox = New Wpf.Ui.Controls.MessageBox With {
-            .Title = LanguageHelper.GetString("CompressionStop_Title"),
+        Dim mainWindow = Application.GetService(Of MainWindow)()
+        Dim cancelRequested = False
+        Dim dialog As Wpf.Ui.Controls.ContentDialog = Nothing
+
+        Dim titleGrid As New Grid With {.Width = 560}
+        titleGrid.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+        titleGrid.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+
+        Dim titleText As New TextBlock With {
+            .Text = LanguageHelper.GetString("CompressionStop_Title"),
+            .VerticalAlignment = VerticalAlignment.Center
+        }
+        titleGrid.Children.Add(titleText)
+
+        Dim cancelButton As New Wpf.Ui.Controls.Button With {
+            .Content = "×",
+            .Width = 32,
+            .Height = 32,
+            .Margin = New Thickness(12, -6, -6, -6),
+            .ToolTip = LanguageHelper.GetString("UniCancel")
+        }
+        Grid.SetColumn(cancelButton, 1)
+        titleGrid.Children.Add(cancelButton)
+
+        dialog = New Wpf.Ui.Controls.ContentDialog(mainWindow.ContentDialogHost) With {
+            .Title = titleGrid,
             .Content = String.Format(LanguageHelper.GetString("CompressionStop_Message"), folderName),
-            .IsPrimaryButtonEnabled = True,
-            .IsSecondaryButtonEnabled = True,
+            .DialogWidth = 640,
             .PrimaryButtonText = LanguageHelper.GetString("CompressionStop_SaveProgress"),
             .SecondaryButtonText = LanguageHelper.GetString("CompressionStop_UndoProgress"),
             .CloseButtonText = LanguageHelper.GetString("CompressionStop_LeaveAsIs")
         }
 
-        Select Case Await msgBox.ShowDialogAsync()
-            Case Wpf.Ui.Controls.MessageBoxResult.Primary
+        AddHandler cancelButton.Click,
+            Sub()
+                cancelRequested = True
+                dialog.Hide(Wpf.Ui.Controls.ContentDialogResult.None)
+            End Sub
+
+        Select Case Await dialog.ShowAsync()
+            Case Wpf.Ui.Controls.ContentDialogResult.Primary
                 Return CompressionStopChoice.SaveProgress
-            Case Wpf.Ui.Controls.MessageBoxResult.Secondary
+            Case Wpf.Ui.Controls.ContentDialogResult.Secondary
                 Return CompressionStopChoice.UndoProgress
             Case Else
-                Return CompressionStopChoice.LeaveAsIs
+                Return If(cancelRequested, CompressionStopChoice.Cancel, CompressionStopChoice.LeaveAsIs)
         End Select
     End Function
 

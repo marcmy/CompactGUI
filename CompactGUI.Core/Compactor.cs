@@ -22,6 +22,8 @@ public sealed class Compactor : ICompressor, IDisposable
     private UInt32 compressionInfoSize;
 
     private long totalProcessedBytes = 0;
+    private int processedFileCount = 0;
+    private int failedFileCount = 0;
     private readonly SemaphoreSlim pauseSemaphore = new SemaphoreSlim(1, 2);
     private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private readonly ConcurrentDictionary<string, WOFCompressionAlgorithm> processedFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -62,9 +64,15 @@ public sealed class Compactor : ICompressor, IDisposable
         var workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
         WorkItemCount = workingFiles.Count;
         long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
+        var workItems = workingFiles
+            .Select(file => new CompressionWorkItem(file.FileName, file.UncompressedSize))
+            .ToList();
 
         totalProcessedBytes = 0;
+        processedFileCount = 0;
+        failedFileCount = 0;
         processedFiles.Clear();
+        progressMonitor?.Report(CompressionProgress.CreateWorkList(workItems, totalFilesSize));
 
         if (workingFiles.Count == 0)
         {
@@ -112,32 +120,79 @@ public sealed class Compactor : ICompressor, IDisposable
         await pauseSemaphore.WaitAsync(token).ConfigureAwait(false);
         pauseSemaphore.Release();
 
-        var res = WOFCompressFile(file.FileName);
-        if (res == 0)
+        var workItem = new CompressionWorkItem(file.FileName, file.UncompressedSize);
+        long currentProcessedBytes = Interlocked.Read(ref totalProcessedBytes);
+        progressMonitor?.Report(CompressionProgress.CreateFileUpdate(
+            CalculateProgressPercent(currentProcessedBytes, totalFilesSize),
+            workItem,
+            CompressionFileState.Processing,
+            currentProcessedBytes,
+            Volatile.Read(ref processedFileCount),
+            WorkItemCount,
+            Volatile.Read(ref failedFileCount),
+            totalFilesSize));
+
+        FileOperationResult operation = WOFCompressFile(file.FileName);
+        bool succeeded = operation.Succeeded;
+        long? compressedSize = null;
+        if (succeeded)
         {
             processedFiles.TryAdd(file.FileName, file.OriginalCompressionMode);
+            long fileSizeOnDisk = SharedMethods.GetFileSizeOnDisk(file.FileName);
+            if (fileSizeOnDisk >= 0) compressedSize = fileSizeOnDisk;
         }
-        Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
-        var progressPercent = totalFilesSize <= 0
-            ? 100
-            : (int)((double)totalProcessedBytes / totalFilesSize * 100.0);
-        progressMonitor?.Report(new CompressionProgress(progressPercent, file.FileName));
+        else
+        {
+            Interlocked.Increment(ref failedFileCount);
+        }
+
+        long processedBytes = Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
+        int processedFilesCount = Interlocked.Increment(ref processedFileCount);
+        progressMonitor?.Report(CompressionProgress.CreateFileUpdate(
+            CalculateProgressPercent(processedBytes, totalFilesSize),
+            workItem,
+            succeeded ? CompressionFileState.Completed : CompressionFileState.Failed,
+            processedBytes,
+            processedFilesCount,
+            WorkItemCount,
+            Volatile.Read(ref failedFileCount),
+            totalFilesSize,
+            compressedSize,
+            operation.FailureReason));
 
     }
 
-    private unsafe int? WOFCompressFile(string filePath)
+    private static int CalculateProgressPercent(long processedBytes, long totalBytes)
+    {
+        return totalBytes <= 0
+            ? 100
+            : Math.Clamp((int)((double)processedBytes / totalBytes * 100.0), 0, 100);
+    }
+
+    private unsafe FileOperationResult WOFCompressFile(string filePath)
     {
         try
         {
             using (SafeFileHandle fs = File.OpenHandle(filePath))
             {
-                return PInvoke.WofSetFileDataLocation(fs, (uint)WOFHelper.WOF_PROVIDER_FILE, compressionInfoPtr.ToPointer(), compressionInfoSize);
+                int result = PInvoke.WofSetFileDataLocation(
+                    fs,
+                    (uint)WOFHelper.WOF_PROVIDER_FILE,
+                    compressionInfoPtr.ToPointer(),
+                    compressionInfoSize);
+
+                if (result == 0) return new FileOperationResult(true);
+
+                string failureReason = Marshal.GetExceptionForHR(result)?.Message
+                    ?? $"Windows returned HRESULT 0x{result:X8}.";
+                CompactorLog.FileCompressionFailed(_logger, filePath, failureReason);
+                return new FileOperationResult(false, failureReason);
             }
         }
         catch (Exception ex)
         {
             CompactorLog.FileCompressionFailed(_logger, filePath, ex.Message);
-            return null;
+            return new FileOperationResult(false, ex.Message);
         }
     }
 

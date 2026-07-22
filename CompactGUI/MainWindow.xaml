@@ -29,6 +29,10 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
+        <ContentPresenter x:Name="RootContentDialogPresenter"
+                          Grid.Row="0" Grid.RowSpan="2"
+                          Panel.ZIndex="1000" />
+
         <ui:TitleBar Grid.Row="0" Grid.ColumnSpan="2"
                      IsHitTestVisible="True" />
 

@@ -11,6 +11,13 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
     Private ReadOnly _NavigationService As INavigationService
     Private _MainWindowViewModel As MainWindowViewModel
     Private _SettingsService As ISettingsService
+
+    Public ReadOnly Property ContentDialogHost As ContentPresenter
+        Get
+            Return RootContentDialogPresenter
+        End Get
+    End Property
+
     Public Sub New(settingsService As ISettingsService, navigationService As INavigationService, serviceProvider As IServiceProvider, snackbarService As CustomSnackBarService, viewmodel As MainWindowViewModel)
 
         ' This call is required by the designer.
