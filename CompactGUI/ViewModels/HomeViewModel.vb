@@ -61,8 +61,9 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
     Private ReadOnly _logger As ILogger(Of HomeViewModel)
     Private ReadOnly _settingsService As ISettingsService
     Private ReadOnly _compressableFolderService As CompressableFolderService
+    Private ReadOnly _folderValidationService As FolderValidationService
 
-    Sub New(watcher As Watcher.Watcher, snackbarService As CustomSnackBarService, logger As ILogger(Of HomeViewModel), settingsService As ISettingsService, compressableFolderService As CompressableFolderService)
+    Sub New(watcher As Watcher.Watcher, snackbarService As CustomSnackBarService, logger As ILogger(Of HomeViewModel), settingsService As ISettingsService, compressableFolderService As CompressableFolderService, folderValidationService As FolderValidationService)
         WeakReferenceMessenger.Default.Register(Of WatcherAddedFolderToQueueMessage)(Me)
         AddHandler Folders.CollectionChanged, AddressOf OnFoldersCollectionChanged
         _watcher = watcher
@@ -70,6 +71,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         _logger = logger
         _settingsService = settingsService
         _compressableFolderService = compressableFolderService
+        _folderValidationService = folderValidationService
     End Sub
 
 
@@ -108,17 +110,28 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
     Public Async Function AddFoldersAsync(folderPaths As IEnumerable(Of String)) As Task
 
-        HomeViewModelLog.AddingFolders(_logger, folderPaths)
+        Dim requestedFolders = folderPaths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+        HomeViewModelLog.AddingFolders(_logger, requestedFolders)
 
-        Dim invalidFolders = GetInvalidFolders(folderPaths.ToArray())
-        Dim validFolders = folderPaths.Except(invalidFolders.InvalidFolders)
+        Dim invalidFolderPaths As New List(Of String)
+        Dim invalidMessages As New List(Of FolderVerificationResult)
+
+        For Each folderPath In requestedFolders
+            Dim validation = Await _folderValidationService.VerifyFolderAsync(folderPath)
+            If validation <> FolderVerificationResult.Valid Then
+                invalidFolderPaths.Add(folderPath)
+                invalidMessages.Add(validation)
+            End If
+        Next
+
+        Dim validFolders = requestedFolders.Except(invalidFolderPaths, StringComparer.OrdinalIgnoreCase)
         Dim foldersToResume As New List(Of CompressableFolder)()
         Dim resumeService = Application.GetService(Of CompressionResumeService)()
         Dim windowService = Application.GetService(Of IWindowService)()
 
-        If invalidFolders.InvalidFolders.Count > 0 Then
-            HomeViewModelLog.InvalidFolders(_logger, invalidFolders.InvalidFolders, invalidFolders.InvalidMessages.Select(Function(result) GetFolderVerificationMessage(result)))
-            _snackbarService.ShowInvalidFoldersMessage(invalidFolders.InvalidFolders, invalidFolders.InvalidMessages)
+        If invalidFolderPaths.Count > 0 Then
+            HomeViewModelLog.InvalidFolders(_logger, invalidFolderPaths, invalidMessages.Select(Function(result) GetFolderVerificationMessage(result)))
+            _snackbarService.ShowInvalidFoldersMessage(invalidFolderPaths, invalidMessages)
         End If
 
         For Each folderName In validFolders

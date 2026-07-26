@@ -653,4 +653,19 @@ Are you sure you want to exit?</value>
   <data name="CompressionDetails_Status_Failed" xml:space="preserve">
     <value>Failed</value>
   </data>
+  <data name="FolderCompression_Title" xml:space="preserve">
+    <value>Windows compression detected</value>
+  </data>
+  <data name="FolderCompression_Message" xml:space="preserve">
+    <value>{0} is marked so new files inherit Windows NTFS compression. CompactGUI cannot safely combine that with its WOF compression.&#10;&#10;Clear only this folder's compression flag and retry? Existing files and subfolders will not be changed.</value>
+  </data>
+  <data name="FolderCompression_ClearAndRetry" xml:space="preserve">
+    <value>Clear flag and retry</value>
+  </data>
+  <data name="FolderCompression_ClearFailed" xml:space="preserve">
+    <value>Could not clear Windows compression</value>
+  </data>
+  <data name="FolderCompression_ClearFailedMessage" xml:space="preserve">
+    <value>CompactGUI could not clear the compression flag from {0}.&#10;&#10;{1}</value>
+  </data>
 </root>
