@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using Windows.Win32;
@@ -58,7 +59,7 @@ public static class SharedMethods
             FolderVerificationResult.OneDriveFolder => "Files synced with OneDrive cannot be compressed as they use a different storage structure",
             FolderVerificationResult.NonNTFSDrive => "Cannot compress a directory on a non-NTFS drive",
             FolderVerificationResult.InsufficientPermission => "Insufficient permission to access this folder.",
-            FolderVerificationResult.LZNT1Compressed => "Folders using Windows' compression are not supported. Disable Windows compression on this folder first.",
+            FolderVerificationResult.LZNT1Compressed => "This folder is marked so new files inherit Windows NTFS compression. Clear the folder's compression flag before adding it.",
             _ => "Unknown error"
         };
     }
@@ -221,6 +222,60 @@ public static class SharedMethods
     {
         var attributes = File.GetAttributes(folderPath);
         return attributes.HasFlag(FileAttributes.Compressed);
+    }
+
+    public readonly record struct FolderCompressionFlagClearResult(bool Succeeded, string ErrorMessage);
+
+    public static async Task<FolderCompressionFlagClearResult> ClearFolderLZNT1CompressionFlagAsync(string folderPath)
+    {
+        if (!Directory.Exists(folderPath))
+            return new FolderCompressionFlagClearResult(false, "Directory does not exist.");
+
+        try
+        {
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = Path.Combine(Environment.SystemDirectory, "compact.exe"),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            // Intentionally omit /S. This changes only the selected directory's
+            // inheritance flag and does not alter any existing files or subfolders.
+            startInfo.ArgumentList.Add("/U");
+            startInfo.ArgumentList.Add("/Q");
+            startInfo.ArgumentList.Add(folderPath);
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Windows could not start compact.exe.");
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            string output = await outputTask.ConfigureAwait(false);
+            string error = await errorTask.ConfigureAwait(false);
+
+            if (process.ExitCode != 0)
+            {
+                string details = string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
+                if (string.IsNullOrWhiteSpace(details))
+                    details = $"compact.exe exited with code {process.ExitCode}.";
+
+                return new FolderCompressionFlagClearResult(false, details);
+            }
+
+            if (IsFolderLZNT1Compressed(folderPath))
+                return new FolderCompressionFlagClearResult(false, "Windows left the folder compression flag enabled.");
+
+            return new FolderCompressionFlagClearResult(true, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            return new FolderCompressionFlagClearResult(false, ex.Message);
+        }
     }
 
     public static bool IsDirectStorageGameFolder(string folderPath)

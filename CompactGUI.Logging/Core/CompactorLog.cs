@@ -16,6 +16,9 @@ public static partial class CompactorLog
     [LoggerMessage(Level = LogLevel.Debug, Message = "Building working files list for directory: {Directory}")]
     public static partial void BuildingWorkingFilesList(ILogger logger, string directory);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Compression checkpoint has {WorkItemCount} remaining files ({RemainingBytes} bytes), continuing after {ProcessedFiles} files ({ProcessedBytes} bytes)")]
+    public static partial void WorkListBuilt(ILogger logger, int workItemCount, long remainingBytes, int processedFiles, long processedBytes);
+
     [LoggerMessage(Level = LogLevel.Trace, Message = "Processing file: {FileName} ({UncompressedSize} bytes)")]
     public static partial void ProcessingFile(ILogger logger, string fileName, long uncompressedSize);
 

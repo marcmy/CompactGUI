@@ -599,6 +599,12 @@ Are you sure you want to exit?</value>
   <data name="CompressionResume_Message" xml:space="preserve">
     <value>CompactGUI saved a {1} compression session for {0}. Resume the remaining files now?</value>
   </data>
+  <data name="CompressionResume_CheckpointMessage" xml:space="preserve">
+    <value>CompactGUI saved a {1} compression checkpoint for {0} after {2:N0} of {3:N0} files ({4}%). Resume the remaining files now?</value>
+  </data>
+  <data name="CompressionResume_LegacyMessage" xml:space="preserve">
+    <value>CompactGUI saved a {1} session for {0} with an older build. Files already using the target mode will still be skipped, but the old progress counter cannot be restored and will restart from zero. Continue?</value>
+  </data>
   <data name="CompressionResume_Resume" xml:space="preserve">
     <value>Resume</value>
   </data>
@@ -652,5 +658,20 @@ Are you sure you want to exit?</value>
   </data>
   <data name="CompressionDetails_Status_Failed" xml:space="preserve">
     <value>Failed</value>
+  </data>
+  <data name="FolderCompression_Title" xml:space="preserve">
+    <value>Windows compression detected</value>
+  </data>
+  <data name="FolderCompression_Message" xml:space="preserve">
+    <value>{0} is marked so new files inherit Windows NTFS compression. CompactGUI cannot safely combine that with its WOF compression.&#10;&#10;Clear only this folder's compression flag and retry? Existing files and subfolders will not be changed.</value>
+  </data>
+  <data name="FolderCompression_ClearAndRetry" xml:space="preserve">
+    <value>Clear flag and retry</value>
+  </data>
+  <data name="FolderCompression_ClearFailed" xml:space="preserve">
+    <value>Could not clear Windows compression</value>
+  </data>
+  <data name="FolderCompression_ClearFailedMessage" xml:space="preserve">
+    <value>CompactGUI could not clear the compression flag from {0}.&#10;&#10;{1}</value>
   </data>
 </root>

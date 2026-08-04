@@ -11,11 +11,13 @@ Imports Wpf.Ui.Controls
 Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
 
     Private ReadOnly _snackbarService As CustomSnackBarService
+    Private ReadOnly _folderValidationService As FolderValidationService
     Public ReadOnly Property Watcher As Watcher.Watcher
 
-    Public Sub New(watcher As Watcher.Watcher, snackbarService As CustomSnackBarService)
+    Public Sub New(watcher As Watcher.Watcher, snackbarService As CustomSnackBarService, folderValidationService As FolderValidationService)
         Me.Watcher = watcher
         _snackbarService = snackbarService
+        _folderValidationService = folderValidationService
     End Sub
 
 
@@ -66,15 +68,9 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
         folderSelector.ShowDialog()
         If folderSelector.FolderName = "" Then Return
         Dim path As String = folderSelector.FolderName
-        Dim validFolder = Core.SharedMethods.VerifyFolder(path)
-        If validFolder <> Core.SharedMethods.FolderVerificationResult.Valid Then
-
-            _snackbarService.ShowInvalidFoldersMessage(New List(Of String) From {path}, New List(Of Core.SharedMethods.FolderVerificationResult) From {validFolder})
-
-            Return
-        End If
 
         Dim newFolder = Await AddFolderAsync(path)
+        If newFolder Is Nothing Then Return
 
         Dim newWatched = New Watcher.WatchedFolder(newFolder.FolderName, newFolder.DisplayName) With {
            .IsSteamGame = TypeOf (newFolder) Is SteamFolder,
@@ -95,9 +91,11 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
 
     Public Async Function AddFolderAsync(folderPath As String) As Task(Of CompressableFolder)
 
-        If GetInvalidFolders({folderPath}).InvalidFolders.Count > 0 Then
-            Dim msgError As New ContentDialog With {.Title = "Invalid Folder", .Content = $"{folderPath}", .CloseButtonText = "OK"}
-            Await msgError.ShowAsync()
+        Dim validation = Await _folderValidationService.VerifyFolderAsync(folderPath)
+        If validation <> Core.SharedMethods.FolderVerificationResult.Valid Then
+            _snackbarService.ShowInvalidFoldersMessage(
+                New List(Of String) From {folderPath},
+                New List(Of Core.SharedMethods.FolderVerificationResult) From {validation})
             Return Nothing
         End If
 
