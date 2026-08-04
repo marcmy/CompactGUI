@@ -15,7 +15,9 @@ public sealed class Compactor : ICompressor, IDisposable
 
     private readonly string workingDirectory;
     private readonly HashSet<string> excludedFileExtensions;
+    private readonly HashSet<string> resumeExcludedFiles;
     private readonly WOFCompressionAlgorithm wofCompressionAlgorithm;
+    private readonly CompressionProgressBaseline progressBaseline;
 
 
     private IntPtr compressionInfoPtr;
@@ -27,19 +29,42 @@ public sealed class Compactor : ICompressor, IDisposable
     private readonly SemaphoreSlim pauseSemaphore = new SemaphoreSlim(1, 2);
     private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private readonly ConcurrentDictionary<string, WOFCompressionAlgorithm> processedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> failedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CompressionWorkItem> workItems = [];
 
     private ILogger<Compactor> _logger;
 
     private Analyser _analyser;
 
     public IReadOnlyDictionary<string, WOFCompressionAlgorithm> ProcessedFiles => processedFiles;
+    public IReadOnlyCollection<string> FailedFiles => failedFiles.Keys.ToList();
+    public IReadOnlyList<CompressionWorkItem> RemainingWorkItems => workItems
+        .Where(item => !processedFiles.ContainsKey(item.FileName) && !failedFiles.ContainsKey(item.FileName))
+        .ToList();
+    public bool HasBuiltWorkList { get; private set; }
     public int WorkItemCount { get; private set; }
+    public long DisplayProcessedBytes => progressBaseline.ProcessedBytes + Interlocked.Read(ref totalProcessedBytes);
+    public int DisplayProcessedFiles => progressBaseline.ProcessedFiles + Volatile.Read(ref processedFileCount);
+    public int DisplayFailedFiles => progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount);
+    public long DisplayTotalBytes { get; private set; }
+    public int DisplayTotalFiles { get; private set; }
 
-    public Compactor(string folderPath, WOFCompressionAlgorithm compressionLevel, string[] excludedFileTypes, Analyser analyser, ILogger<Compactor>? logger = null)
+    public Compactor(
+        string folderPath,
+        WOFCompressionAlgorithm compressionLevel,
+        string[] excludedFileTypes,
+        Analyser analyser,
+        ILogger<Compactor>? logger = null,
+        IReadOnlyCollection<string>? resumeExcludedFiles = null,
+        CompressionProgressBaseline? progressBaseline = null)
     {
         workingDirectory = folderPath;
         excludedFileExtensions = new HashSet<string>(excludedFileTypes);
+        this.resumeExcludedFiles = resumeExcludedFiles is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(resumeExcludedFiles, StringComparer.OrdinalIgnoreCase);
         wofCompressionAlgorithm = compressionLevel;
+        this.progressBaseline = progressBaseline ?? default;
         _logger = logger ?? NullLogger<Compactor>.Instance;
         _analyser = analyser;
         InitializeCompressionInfoPointer();
@@ -61,22 +86,62 @@ public sealed class Compactor : ICompressor, IDisposable
         if(cancellationTokenSource.IsCancellationRequested) { return false; }
 
         CompactorLog.BuildingWorkingFilesList(_logger, workingDirectory);
-        var workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+        List<FileDetails> workingFiles;
+        try
+        {
+            workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            CompactorLog.CompressionCanceled(_logger);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            CompactorLog.CompressionFailed(_logger, ex.Message);
+            return false;
+        }
+
         WorkItemCount = workingFiles.Count;
+        HasBuiltWorkList = true;
         long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
-        var workItems = workingFiles
+        workItems = workingFiles
             .Select(file => new CompressionWorkItem(file.FileName, file.UncompressedSize))
             .ToList();
+        DisplayTotalBytes = progressBaseline.ProcessedBytes + totalFilesSize;
+        DisplayTotalFiles = progressBaseline.ProcessedFiles + WorkItemCount;
 
         totalProcessedBytes = 0;
         processedFileCount = 0;
         failedFileCount = 0;
         processedFiles.Clear();
-        progressMonitor?.Report(CompressionProgress.CreateWorkList(workItems, totalFilesSize));
+        failedFiles.Clear();
+
+        CompactorLog.WorkListBuilt(
+            _logger,
+            WorkItemCount,
+            totalFilesSize,
+            progressBaseline.ProcessedFiles,
+            progressBaseline.ProcessedBytes);
+
+        CompressionProgress workListProgress = CompressionProgress.CreateWorkList(workItems, DisplayTotalBytes);
+        workListProgress.ProgressPercent = CalculateProgressPercent(progressBaseline.ProcessedBytes, DisplayTotalBytes);
+        workListProgress.ProcessedBytes = progressBaseline.ProcessedBytes;
+        workListProgress.ProcessedFiles = progressBaseline.ProcessedFiles;
+        workListProgress.TotalFiles = DisplayTotalFiles;
+        workListProgress.FailedFiles = progressBaseline.FailedFiles;
+        progressMonitor?.Report(workListProgress);
 
         if (workingFiles.Count == 0)
         {
-            progressMonitor?.Report(new CompressionProgress(100, string.Empty));
+            progressMonitor?.Report(new CompressionProgress(100, string.Empty)
+            {
+                ProcessedBytes = DisplayTotalBytes,
+                TotalBytes = DisplayTotalBytes,
+                ProcessedFiles = DisplayTotalFiles,
+                TotalFiles = DisplayTotalFiles,
+                FailedFiles = progressBaseline.FailedFiles
+            });
             CompactorLog.CompressionCompleted(_logger, 0);
             return false;
         }
@@ -121,16 +186,16 @@ public sealed class Compactor : ICompressor, IDisposable
         pauseSemaphore.Release();
 
         var workItem = new CompressionWorkItem(file.FileName, file.UncompressedSize);
-        long currentProcessedBytes = Interlocked.Read(ref totalProcessedBytes);
+        long currentProcessedBytes = progressBaseline.ProcessedBytes + Interlocked.Read(ref totalProcessedBytes);
         progressMonitor?.Report(CompressionProgress.CreateFileUpdate(
-            CalculateProgressPercent(currentProcessedBytes, totalFilesSize),
+            CalculateProgressPercent(currentProcessedBytes, DisplayTotalBytes),
             workItem,
             CompressionFileState.Processing,
             currentProcessedBytes,
-            Volatile.Read(ref processedFileCount),
-            WorkItemCount,
-            Volatile.Read(ref failedFileCount),
-            totalFilesSize));
+            progressBaseline.ProcessedFiles + Volatile.Read(ref processedFileCount),
+            DisplayTotalFiles,
+            progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount),
+            DisplayTotalBytes));
 
         FileOperationResult operation = WOFCompressFile(file.FileName);
         bool succeeded = operation.Succeeded;
@@ -144,19 +209,20 @@ public sealed class Compactor : ICompressor, IDisposable
         else
         {
             Interlocked.Increment(ref failedFileCount);
+            failedFiles.TryAdd(file.FileName, 0);
         }
 
-        long processedBytes = Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
-        int processedFilesCount = Interlocked.Increment(ref processedFileCount);
+        long processedBytes = progressBaseline.ProcessedBytes + Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
+        int processedFilesCount = progressBaseline.ProcessedFiles + Interlocked.Increment(ref processedFileCount);
         progressMonitor?.Report(CompressionProgress.CreateFileUpdate(
-            CalculateProgressPercent(processedBytes, totalFilesSize),
+            CalculateProgressPercent(processedBytes, DisplayTotalBytes),
             workItem,
             succeeded ? CompressionFileState.Completed : CompressionFileState.Failed,
             processedBytes,
             processedFilesCount,
-            WorkItemCount,
-            Volatile.Read(ref failedFileCount),
-            totalFilesSize,
+            DisplayTotalFiles,
+            progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount),
+            DisplayTotalBytes,
             compressedSize,
             operation.FailureReason));
 
@@ -214,6 +280,7 @@ public sealed class Compactor : ICompressor, IDisposable
         return analysedFiles
             .Where(fl =>
                 fl.CompressionMode != wofCompressionAlgorithm
+                && !resumeExcludedFiles.Contains(fl.FileName)
                 && fl.UncompressedSize > clusterSize
                 && ((fl.FileInfo != null && !excludedFileExtensions.Contains(fl.FileInfo.Extension)) || excludedFileExtensions.Contains(fl.FileName))
             )

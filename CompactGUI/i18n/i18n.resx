@@ -599,6 +599,12 @@ Are you sure you want to exit?</value>
   <data name="CompressionResume_Message" xml:space="preserve">
     <value>CompactGUI saved a {1} compression session for {0}. Resume the remaining files now?</value>
   </data>
+  <data name="CompressionResume_CheckpointMessage" xml:space="preserve">
+    <value>CompactGUI saved a {1} compression checkpoint for {0} after {2:N0} of {3:N0} files ({4}%). Resume the remaining files now?</value>
+  </data>
+  <data name="CompressionResume_LegacyMessage" xml:space="preserve">
+    <value>CompactGUI saved a {1} session for {0} with an older build. Files already using the target mode will still be skipped, but the old progress counter cannot be restored and will restart from zero. Continue?</value>
+  </data>
   <data name="CompressionResume_Resume" xml:space="preserve">
     <value>Resume</value>
   </data>

@@ -30,13 +30,33 @@ Public NotInheritable Class CompressionResumeService
         End SyncLock
     End Function
 
-    Public Sub SaveSession(folder As CompressableFolder)
+    Public Sub SaveSession(folder As CompressableFolder, compactor As Core.Compactor, previousSession As SavedCompressionSession)
+        If Not compactor.HasBuiltWorkList AndAlso previousSession IsNot Nothing Then Return
+
+        Dim failedPaths = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        If previousSession?.HasProgressCheckpoint Then
+            For Each failedPath In previousSession.FailedFilePaths
+                If Not String.IsNullOrWhiteSpace(failedPath) Then failedPaths.Add(failedPath)
+            Next
+        End If
+
+        For Each failedPath In compactor.FailedFiles
+            If Not String.IsNullOrWhiteSpace(failedPath) Then failedPaths.Add(failedPath)
+        Next
+
         Dim session = New SavedCompressionSession With {
             .FolderPath = NormalizePath(folder.FolderName),
             .SelectedCompressionMode = folder.CompressionOptions.SelectedCompressionMode,
             .SkipPoorlyCompressedFileTypes = folder.CompressionOptions.SkipPoorlyCompressedFileTypes,
             .SkipUserSubmittedFiletypes = folder.CompressionOptions.SkipUserSubmittedFiletypes,
             .WatchFolderForChanges = folder.CompressionOptions.WatchFolderForChanges,
+            .ResumeDataVersion = SavedCompressionSession.CurrentResumeDataVersion,
+            .TotalFiles = compactor.DisplayTotalFiles,
+            .TotalBytes = compactor.DisplayTotalBytes,
+            .ProcessedFiles = compactor.DisplayProcessedFiles,
+            .ProcessedBytes = compactor.DisplayProcessedBytes,
+            .FailedFiles = compactor.DisplayFailedFiles,
+            .FailedFilePaths = failedPaths.OrderBy(Function(path) path, StringComparer.OrdinalIgnoreCase).ToList(),
             .SavedAt = DateTime.Now
         }
 
@@ -70,6 +90,7 @@ Public NotInheritable Class CompressionResumeService
             For Each entry In entries
                 If String.IsNullOrWhiteSpace(entry.FolderPath) Then Continue For
                 entry.FolderPath = NormalizePath(entry.FolderPath)
+                If entry.FailedFilePaths Is Nothing Then entry.FailedFilePaths = New List(Of String)()
                 loaded(entry.FolderPath) = entry
             Next
         Catch ex As Exception
@@ -96,6 +117,13 @@ Public NotInheritable Class CompressionResumeService
             .SkipPoorlyCompressedFileTypes = source.SkipPoorlyCompressedFileTypes,
             .SkipUserSubmittedFiletypes = source.SkipUserSubmittedFiletypes,
             .WatchFolderForChanges = source.WatchFolderForChanges,
+            .ResumeDataVersion = source.ResumeDataVersion,
+            .TotalFiles = source.TotalFiles,
+            .TotalBytes = source.TotalBytes,
+            .ProcessedFiles = source.ProcessedFiles,
+            .ProcessedBytes = source.ProcessedBytes,
+            .FailedFiles = source.FailedFiles,
+            .FailedFilePaths = If(source.FailedFilePaths, New List(Of String)()).ToList(),
             .SavedAt = source.SavedAt
         }
     End Function

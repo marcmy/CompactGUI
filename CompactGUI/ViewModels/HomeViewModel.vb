@@ -125,7 +125,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         Next
 
         Dim validFolders = requestedFolders.Except(invalidFolderPaths, StringComparer.OrdinalIgnoreCase)
-        Dim foldersToResume As New List(Of CompressableFolder)()
+        Dim foldersToResume As New Dictionary(Of CompressableFolder, SavedCompressionSession)()
         Dim resumeService = Application.GetService(Of CompressionResumeService)()
         Dim windowService = Application.GetService(Of IWindowService)()
 
@@ -185,10 +185,12 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 End If
             End If
 
-            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.ResumeProgress Then foldersToResume.Add(newFolder)
+            If resumeChoice.HasValue AndAlso resumeChoice.Value = CompressionResumeChoice.ResumeProgress AndAlso savedSession IsNot Nothing Then
+                foldersToResume(newFolder) = savedSession
+            End If
         Next
 
-        If foldersToResume.Count > 0 Then Await CompressFoldersAsync(foldersToResume)
+        If foldersToResume.Count > 0 Then Await CompressFoldersAsync(foldersToResume.Keys.ToList(), foldersToResume)
     End Function
 
 
@@ -261,7 +263,9 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         Await CompressFoldersAsync(foldersToCompress)
     End Function
 
-    Private Async Function CompressFoldersAsync(foldersToCompress As IReadOnlyCollection(Of CompressableFolder)) As Task
+    Private Async Function CompressFoldersAsync(
+        foldersToCompress As IReadOnlyCollection(Of CompressableFolder),
+        Optional resumeSessions As IReadOnlyDictionary(Of CompressableFolder, SavedCompressionSession) = Nothing) As Task
         If foldersToCompress Is Nothing OrElse foldersToCompress.Count = 0 Then Return
 
         Await _watcher.DisableBackgrounding()
@@ -283,7 +287,10 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 'Keep the orchestration on the WPF synchronization context. The compressor performs
                 'its own asynchronous file work, while folder state and commands remain UI-thread-owned.
                 HomeViewModelLog.CompressingFolder(_logger, folder.FolderName)
-                Dim runResult = Await _compressableFolderService.CompressFolder(folder)
+                Dim resumeSession As SavedCompressionSession = Nothing
+                If resumeSessions IsNot Nothing Then resumeSessions.TryGetValue(folder, resumeSession)
+
+                Dim runResult = Await _compressableFolderService.CompressFolder(folder, resumeSession)
                 If Not runResult.HadWork Then Continue For
 
                 foldersWithCompressionWork.Add(folder)

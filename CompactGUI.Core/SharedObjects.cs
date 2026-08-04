@@ -96,6 +96,11 @@ public struct CompressionProgress
 
 public readonly record struct CompressionWorkItem(string FileName, long UncompressedSize);
 
+public readonly record struct CompressionProgressBaseline(
+    long ProcessedBytes,
+    int ProcessedFiles,
+    int FailedFiles);
+
 internal readonly record struct FileOperationResult(bool Succeeded, string? FailureReason = null);
 
 public enum CompressionFileState : int

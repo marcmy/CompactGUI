@@ -95,9 +95,29 @@ Public Class WindowService
     End Function
 
     Public Async Function ShowResumeCompressionDialog(session As SavedCompressionSession) As Task(Of CompressionResumeChoice) Implements IWindowService.ShowResumeCompressionDialog
+        Dim message As String
+        If session.HasProgressCheckpoint Then
+            Dim percentage = If(
+                session.TotalBytes > 0,
+                Math.Clamp(CInt(session.ProcessedBytes / CDbl(session.TotalBytes) * 100), 0, 100),
+                0)
+            message = String.Format(
+                LanguageHelper.GetString("CompressionResume_CheckpointMessage"),
+                session.FolderPath,
+                session.SelectedCompressionMode,
+                session.ProcessedFiles,
+                session.TotalFiles,
+                percentage)
+        Else
+            message = String.Format(
+                LanguageHelper.GetString("CompressionResume_LegacyMessage"),
+                session.FolderPath,
+                session.SelectedCompressionMode)
+        End If
+
         Dim msgBox = New Wpf.Ui.Controls.MessageBox With {
             .Title = LanguageHelper.GetString("CompressionResume_Title"),
-            .Content = String.Format(LanguageHelper.GetString("CompressionResume_Message"), session.FolderPath, session.SelectedCompressionMode),
+            .Content = message,
             .IsPrimaryButtonEnabled = True,
             .IsSecondaryButtonEnabled = True,
             .PrimaryButtonText = LanguageHelper.GetString("CompressionResume_Resume"),

@@ -25,9 +25,28 @@ Public Class CompressableFolderService
     End Sub
 
 
-    Public Async Function CompressFolder(folder As CompressableFolder) As Task(Of CompressionRunResult)
-        folder.Compressor = New Compactor(folder.FolderName, WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode), GetSkipList(folder), folder.Analyser, CompactorLogger)
-        Return Await RunCompressionAsync(folder, folder.Compressor, Nothing, True)
+    Public Async Function CompressFolder(folder As CompressableFolder, Optional resumeSession As SavedCompressionSession = Nothing) As Task(Of CompressionRunResult)
+        Dim resumeExcludedFiles As IReadOnlyCollection(Of String) = Nothing
+        Dim progressBaseline As CompressionProgressBaseline? = Nothing
+
+        If resumeSession IsNot Nothing AndAlso resumeSession.HasProgressCheckpoint Then
+            resumeExcludedFiles = resumeSession.FailedFilePaths
+            progressBaseline = New CompressionProgressBaseline(
+                resumeSession.ProcessedBytes,
+                resumeSession.ProcessedFiles,
+                resumeSession.FailedFiles)
+        End If
+
+        folder.Compressor = New Compactor(
+            folder.FolderName,
+            WOFHelper.WOFConvertCompressionLevel(folder.CompressionOptions.SelectedCompressionMode),
+            GetSkipList(folder),
+            folder.Analyser,
+            CompactorLogger,
+            resumeExcludedFiles,
+            progressBaseline)
+
+        Return Await RunCompressionAsync(folder, folder.Compressor, Nothing, True, resumeSession)
     End Function
 
 
@@ -47,12 +66,6 @@ Public Class CompressableFolderService
         If folder Is Nothing OrElse Not TypeOf folder.Compressor Is Compactor Then Return
         If folder.FolderActionState <> ActionState.Working AndAlso folder.FolderActionState <> ActionState.Paused Then Return
 
-        If choice = CompressionStopChoice.SaveProgress Then
-            _resumeService.SaveSession(folder)
-        Else
-            _resumeService.RemoveSession(folder.FolderName)
-        End If
-
         stopChoices(folder) = choice
 
         Try
@@ -62,7 +75,7 @@ Public Class CompressableFolderService
         End Try
     End Sub
 
-    Private Async Function RunCompressionAsync(folder As CompressableFolder, compressor As ICompressor, filesList As List(Of String), isCompressing As Boolean) As Task(Of CompressionRunResult)
+    Private Async Function RunCompressionAsync(folder As CompressableFolder, compressor As ICompressor, filesList As List(Of String), isCompressing As Boolean, Optional resumeSession As SavedCompressionSession = Nothing) As Task(Of CompressionRunResult)
         folder.FolderActionState = ActionState.Working
 
         CancelEstimation(folder)
@@ -82,11 +95,21 @@ Public Class CompressableFolderService
                 If Not runResult.Completed AndAlso stopChoices.TryRemove(folder, stopChoice) Then
                     runResult.StopChoice = stopChoice
 
-                    If stopChoice = CompressionStopChoice.UndoProgress AndAlso TypeOf compressor Is Compactor Then
-                        folder.FolderActionState = ActionState.Undoing
-                        Await RestoreProcessedFilesAsync(folder, DirectCast(compressor, Compactor), progress)
+                    If TypeOf compressor Is Compactor Then
+                        Dim compactor = DirectCast(compressor, Compactor)
+
+                        If stopChoice = CompressionStopChoice.SaveProgress Then
+                            _resumeService.SaveSession(folder, compactor, resumeSession)
+                        Else
+                            _resumeService.RemoveSession(folder.FolderName)
+                        End If
+
+                        If stopChoice = CompressionStopChoice.UndoProgress Then
+                            folder.FolderActionState = ActionState.Undoing
+                            Await RestoreProcessedFilesAsync(folder, compactor, progress)
+                        End If
                     End If
-                ElseIf runResult.Completed Then
+                ElseIf runResult.Completed OrElse (resumeSession IsNot Nothing AndAlso TypeOf compressor Is Compactor AndAlso DirectCast(compressor, Compactor).WorkItemCount = 0) Then
                     stopChoices.TryRemove(folder, stopChoice)
                     _resumeService.RemoveSession(folder.FolderName)
                 End If
