@@ -19,6 +19,7 @@ public partial class Settings : ObservableRecipient
 
     [ObservableProperty] private int skipUserFileTypesLevel = 0;
     [ObservableProperty] private bool showNotifications = false;
+    [ObservableProperty] private bool startWithWindows = false;
     [ObservableProperty] private bool startInSystemTray = false;
 
     [ObservableProperty] private int maxCompressionThreads = 0;

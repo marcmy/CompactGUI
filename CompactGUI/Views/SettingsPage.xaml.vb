@@ -7,10 +7,31 @@ Partial Public Class SettingsPage
 
 
         DataContext = settingsviewmodel
+        AddStartWithWindowsSetting()
 
 
         ScrollViewer.SetCanContentScroll(Me, False)
 
+    End Sub
+
+    Private Sub AddStartWithWindowsSetting()
+        Dim systemIntegrationPanel = TryCast(UiAlwaysStartInTray.Parent, StackPanel)
+        If systemIntegrationPanel Is Nothing Then Return
+
+        Dim traySettingIndex = systemIntegrationPanel.Children.IndexOf(UiAlwaysStartInTray)
+        If traySettingIndex < 0 Then Return
+
+        Dim startWithWindowsCheckBox As New CheckBox With {
+            .Margin = New Thickness(0, -3, 0, -3),
+            .Content = "Start CompactGUI with Windows",
+            .ToolTip = "Launches CompactGUI in the system tray when you sign in to Windows."
+        }
+
+        startWithWindowsCheckBox.SetBinding(CheckBox.IsCheckedProperty, New Binding("AppSettings.StartWithWindows") With {
+            .Mode = BindingMode.TwoWay
+        })
+
+        systemIntegrationPanel.Children.Insert(traySettingIndex, startWithWindowsCheckBox)
     End Sub
 
 
