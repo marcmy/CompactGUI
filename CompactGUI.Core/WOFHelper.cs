@@ -102,7 +102,7 @@ public static class WOFHelper
         WOFHelper.WOF_FILE_COMPRESSION_INFO_V1 info;
         uint buffer = 8;
 
-        var ret = PInvoke.WofIsExternalFile(fileInfo.FullName, &isExternalFile, &provider, &info, &buffer);
+        var ret = PInvoke.WofIsExternalFile(fileInfo.FullName, out isExternalFile, out provider, &info, ref buffer);
 
         WOFCompressionAlgorithm algorithm = (WOFCompressionAlgorithm)info.Algorithm;
 
