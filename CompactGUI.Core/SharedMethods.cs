@@ -150,17 +150,14 @@ public static class SharedMethods
 
 
 
-    public static unsafe uint GetClusterSize(string folderPath)
+    public static uint GetClusterSize(string folderPath)
     {
-        UInt32 lpSectorsPerCluster;
-        UInt32 lpBytesPerSector;
-
         PInvoke.GetDiskFreeSpace(
             new DirectoryInfo(folderPath).Root.ToString(),
-            &lpSectorsPerCluster,
-            &lpBytesPerSector,
-            null,
-            null
+            out UInt32 lpSectorsPerCluster,
+            out UInt32 lpBytesPerSector,
+            out _,
+            out _
         );
 
         return lpSectorsPerCluster * lpBytesPerSector;
@@ -168,10 +165,9 @@ public static class SharedMethods
     }
 
 
-    public static unsafe long GetFileSizeOnDisk(string file)
+    public static long GetFileSizeOnDisk(string file)
     {
-        uint highOrder;
-        uint lowOrder = PInvoke.GetCompressedFileSize(file, &highOrder);
+        uint lowOrder = PInvoke.GetCompressedFileSize(file, out uint highOrder);
         if (lowOrder == 0xFFFFFFFF && (Marshal.GetLastWin32Error() != 0)) return -1;
         return ((long)highOrder << 32) | lowOrder;
     }
