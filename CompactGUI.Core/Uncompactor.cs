@@ -147,7 +147,7 @@ public sealed class Uncompactor : ICompressor, IDisposable
             using (SafeFileHandle fs = File.OpenHandle(file))
             {
                 bool succeeded = PInvoke.DeviceIoControl(
-                    fs,
+                    (Windows.Win32.Foundation.HANDLE)fs.DangerousGetHandle(),
                     WOFHelper.FSCTL_DELETE_EXTERNAL_BACKING,
                     null,
                     0,
@@ -155,6 +155,8 @@ public sealed class Uncompactor : ICompressor, IDisposable
                     0,
                     null,
                     null);
+
+                GC.KeepAlive(fs);
 
                 if (succeeded) return new FileOperationResult(true);
 
