@@ -62,6 +62,8 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
     Private ReadOnly _settingsService As ISettingsService
     Private ReadOnly _compressableFolderService As CompressableFolderService
     Private ReadOnly _folderValidationService As FolderValidationService
+    Private _stopBatchAfterCurrent As Boolean = False
+    Private _compressionBatchCompletion As TaskCompletionSource(Of Boolean)
 
     Sub New(watcher As Watcher.Watcher, snackbarService As CustomSnackBarService, logger As ILogger(Of HomeViewModel), settingsService As ISettingsService, compressableFolderService As CompressableFolderService, folderValidationService As FolderValidationService)
         WeakReferenceMessenger.Default.Register(Of WatcherAddedFolderToQueueMessage)(Me)
@@ -259,6 +261,25 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
     Private _Compressing As Boolean = False
 
 
+    Public Function GetActiveManualCompressionFolder() As CompressableFolder
+        Return Folders.FirstOrDefault(
+            Function(folder)
+                Return TypeOf folder.Compressor Is Core.Compactor AndAlso
+                    (folder.FolderActionState = ActionState.Working OrElse folder.FolderActionState = ActionState.Paused)
+            End Function)
+    End Function
+
+
+    Public Async Function StopManualCompressionForExitAsync(folder As CompressableFolder, choice As CompressionStopChoice?) As Task
+        _stopBatchAfterCurrent = True
+        Dim completion = _compressionBatchCompletion
+
+        If folder IsNot Nothing AndAlso choice.HasValue Then
+            _compressableFolderService.RequestCompressionStop(folder, choice.Value)
+        End If
+
+        If completion IsNot Nothing Then Await completion.Task
+    End Function
 
 
     <RelayCommand>
@@ -271,6 +292,11 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         If foldersToCompress Is Nothing OrElse foldersToCompress.Count = 0 Then Return
 
         Await _watcher.DisableBackgrounding()
+
+        Dim completion = New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
+        _compressionBatchCompletion = completion
+        _stopBatchAfterCurrent = False
+
         Compressing = True
         Core.SharedMethods.PreventSleep()
         HomeViewModelLog.StartingBatchCompression(_logger, foldersToCompress.Count)
@@ -299,7 +325,10 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                 End If
 
                 Dim runResult = Await _compressableFolderService.CompressFolder(folder, resumeSession)
-                If Not runResult.HadWork Then Continue For
+                If Not runResult.HadWork Then
+                    If _stopBatchAfterCurrent Then Exit For
+                    Continue For
+                End If
 
                 foldersWithCompressionWork.Add(folder)
                 Await _compressableFolderService.AnalyseFolderAsync(folder)
@@ -315,6 +344,8 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
                 watcherTargetOverrides(folder) = watcherTarget
                 Await _watcher.UpdateWatched(folder.FolderName, folder.Analyser, runResult.Completed, targetCompressionLevel:=watcherTarget)
+
+                If _stopBatchAfterCurrent Then Exit For
             Next
 
             For Each folder In Folders.Where(Function(item) item.CompressionOptions.WatchFolderForChanges)
@@ -334,7 +365,16 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
             Core.SharedMethods.RestoreSleep()
         End Try
 
-        Await _watcher.EnableBackgrounding()
+        Try
+            Await _watcher.EnableBackgrounding()
+        Finally
+            If Object.ReferenceEquals(_compressionBatchCompletion, completion) Then
+                _compressionBatchCompletion = Nothing
+            End If
+            _stopBatchAfterCurrent = False
+            completion.TrySetResult(True)
+        End Try
+
         If capturedException IsNot Nothing Then
             ExceptionDispatchInfo.Capture(capturedException).Throw()
         End If
