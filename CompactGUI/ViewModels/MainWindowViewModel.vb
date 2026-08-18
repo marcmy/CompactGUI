@@ -110,7 +110,7 @@ Partial Public Class MainWindowViewModel : Inherits ObservableRecipient : Implem
 
 
     <RelayCommand>
-    Private Async Sub Closing(e As ComponentModel.CancelEventArgs)
+    Private Async Function Closing(e As ComponentModel.CancelEventArgs) As Task
         If e Is Nothing Then Return
         If _allowClose Then
             e.Cancel = False
@@ -143,7 +143,7 @@ Partial Public Class MainWindowViewModel : Inherits ObservableRecipient : Implem
         Finally
             If Not _allowClose Then _isExitInProgress = False
         End Try
-    End Sub
+    End Function
 
 
     Public Sub Receive(message As PropertyChangedMessage(Of CompressableFolder)) Implements IRecipient(Of PropertyChangedMessage(Of CompressableFolder)).Receive
