@@ -6,6 +6,7 @@ Imports System.Windows.Threading
 Public Class FolderView
 
     Private Shared ReadOnly AutoFollowDebounce As TimeSpan = TimeSpan.FromSeconds(5)
+    Private Shared ReadOnly ColumnSeparatorBrush As Brush = New SolidColorBrush(Color.FromArgb(&H48, &HFF, &HFF, &HFF))
     Private Const MinimumScrollThumbHeight As Double = 28
 
     Private _compressionDetailsGrid As DataGrid
@@ -43,7 +44,24 @@ Public Class FolderView
                 True)
         End If
 
+        'The details table is designed to fit its available width. Do not expose a horizontal
+        'scrollbar just because the DataGrid template reserves one for overflow scenarios.
+        ScrollViewer.SetHorizontalScrollBarVisibility(grid, ScrollBarVisibility.Disabled)
+        grid.CanUserResizeColumns = True
+
+        ConfigureColumnHeaderSeparators(grid)
         ConfigureScrollThumb(grid)
+    End Sub
+
+    Private Shared Sub ConfigureColumnHeaderSeparators(grid As DataGrid)
+        ForEachVisualDescendant(Of DataGridColumnHeader)(
+            grid,
+            Sub(header)
+                'WPF-UI makes the resize boundary obvious only on hover. Keep a subtle line
+                'visible at all times while preserving the normal resize gripper hit target.
+                header.BorderBrush = ColumnSeparatorBrush
+                header.BorderThickness = New Thickness(0, 0, 1, 0)
+            End Sub)
     End Sub
 
     Private Sub ConfigureScrollThumb(grid As DataGrid)
@@ -164,6 +182,18 @@ Public Class FolderView
         icon.Children.Add(stopSquare)
         Return icon
     End Function
+
+    Private Shared Sub ForEachVisualDescendant(Of T As DependencyObject)(root As DependencyObject, action As Action(Of T))
+        If root Is Nothing OrElse action Is Nothing Then Return
+
+        For index = 0 To VisualTreeHelper.GetChildrenCount(root) - 1
+            Dim child = VisualTreeHelper.GetChild(root, index)
+            Dim candidate = TryCast(child, T)
+            If candidate IsNot Nothing Then action(candidate)
+
+            ForEachVisualDescendant(child, action)
+        Next
+    End Sub
 
     Private Shared Function FindVisualDescendant(Of T As DependencyObject)(root As DependencyObject, Optional predicate As Func(Of T, Boolean) = Nothing) As T
         If root Is Nothing Then Return Nothing
