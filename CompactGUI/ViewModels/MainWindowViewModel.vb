@@ -75,18 +75,22 @@ Partial Public Class MainWindowViewModel : Inherits ObservableRecipient : Implem
         _windowService.ShowMainWindow()
 
         Dim pausedForStopDialog = False
+        Dim compressionFinishedWhilePausing = False
         If activeFolder.FolderActionState = ActionState.Working Then
             Try
                 activeFolder.Compressor?.Pause()
                 activeFolder.FolderActionState = ActionState.Paused
                 pausedForStopDialog = True
             Catch ex As OperationCanceledException
-                Await homeViewModel.StopManualCompressionForExitAsync(Nothing, Nothing)
-                Return True
+                compressionFinishedWhilePausing = True
             Catch ex As ObjectDisposedException
-                Await homeViewModel.StopManualCompressionForExitAsync(Nothing, Nothing)
-                Return True
+                compressionFinishedWhilePausing = True
             End Try
+        End If
+
+        If compressionFinishedWhilePausing Then
+            Await homeViewModel.StopManualCompressionForExitAsync(Nothing, Nothing)
+            Return True
         End If
 
         Dim choice = Await _windowService.ShowCompressionStopDialog(activeFolder.DisplayName)
