@@ -1,5 +1,6 @@
 ﻿Imports System.Windows.Controls
 Imports System.Windows.Media
+Imports System.Windows.Media.Imaging
 Imports System.Windows.Shapes
 
 Public Module CharcoalTheme
@@ -32,37 +33,60 @@ Public Module CharcoalTheme
         Dim backgroundLayers = root.Children.OfType(Of Border)().Take(3).ToArray()
         If backgroundLayers.Length < 3 Then Return
 
-        'Use a dark neutral base and shape the light with broad radial falloff instead of
-        'a full-height linear ramp. This avoids visible gradient bands while still keeping
-        'the surface from looking flat.
-        backgroundLayers(0).Background = New SolidColorBrush(Color.FromRgb(&H18, &H18, &H18))
+        backgroundLayers(0).Background = New SolidColorBrush(Color.FromRgb(&H1A, &H1A, &H1A))
 
+        'Keep the softly-lit charcoal look from the previous pass, but make the falloff much
+        'broader and lower-contrast. ScRGB interpolation plus a one-level dither layer below
+        'breaks up the visible WPF gradient contouring that showed up as large streaks.
         Dim topGlow As New RadialGradientBrush With {
-            .Center = New Point(0.5, 0.08),
-            .GradientOrigin = New Point(0.5, -0.02),
-            .RadiusX = 0.95,
-            .RadiusY = 1.08
+            .Center = New Point(0.48, 0.02),
+            .GradientOrigin = New Point(0.48, -0.12),
+            .RadiusX = 1.35,
+            .RadiusY = 1.7,
+            .ColorInterpolationMode = ColorInterpolationMode.ScRgbLinearInterpolation
         }
-        topGlow.GradientStops.Add(New GradientStop(Color.FromArgb(&HFF, &H28, &H28, &H28), 0))
-        topGlow.GradientStops.Add(New GradientStop(Color.FromArgb(&HE8, &H22, &H22, &H22), 0.34))
-        topGlow.GradientStops.Add(New GradientStop(Color.FromArgb(&H78, &H1D, &H1D, &H1D), 0.7))
-        topGlow.GradientStops.Add(New GradientStop(Color.FromArgb(&H0, &H18, &H18, &H18), 1))
+        topGlow.GradientStops.Add(New GradientStop(Color.FromRgb(&H20, &H20, &H20), 0))
+        topGlow.GradientStops.Add(New GradientStop(Color.FromRgb(&H1E, &H1E, &H1E), 0.46))
+        topGlow.GradientStops.Add(New GradientStop(Color.FromRgb(&H1C, &H1C, &H1C), 0.78))
+        topGlow.GradientStops.Add(New GradientStop(Color.FromRgb(&H1A, &H1A, &H1A), 1))
         backgroundLayers(1).Background = topGlow
         backgroundLayers(1).Opacity = 1
 
-        'A very light vignette gives the panel depth without turning the bottom half black.
-        Dim vignette As New RadialGradientBrush With {
-            .Center = New Point(0.5, 0.42),
-            .GradientOrigin = New Point(0.5, 0.42),
-            .RadiusX = 0.82,
-            .RadiusY = 0.94
-        }
-        vignette.GradientStops.Add(New GradientStop(Color.FromArgb(&H0, 0, 0, 0), 0))
-        vignette.GradientStops.Add(New GradientStop(Color.FromArgb(&H0, 0, 0, 0), 0.62))
-        vignette.GradientStops.Add(New GradientStop(Color.FromArgb(&H2A, 0, 0, 0), 1))
-        backgroundLayers(2).Background = vignette
+        backgroundLayers(2).Background = CreateDitherBrush()
         backgroundLayers(2).Opacity = 1
     End Sub
+
+    Private Function CreateDitherBrush() As Brush
+        Const tileSize As Integer = 64
+        Const bytesPerPixel As Integer = 4
+        Dim pixels(tileSize * tileSize * bytesPerPixel - 1) As Byte
+        Dim random As New Random(&H434755)
+
+        For pixelIndex = 0 To tileSize * tileSize - 1
+            Dim offset = pixelIndex * bytesPerPixel
+            Dim isLight = random.Next(0, 2) = 0
+
+            pixels(offset) = If(isLight, CByte(255), CByte(0))
+            pixels(offset + 1) = pixels(offset)
+            pixels(offset + 2) = pixels(offset)
+            pixels(offset + 3) = 1
+        Next
+
+        Dim bitmap As New WriteableBitmap(tileSize, tileSize, 96, 96, PixelFormats.Bgra32, Nothing)
+        bitmap.WritePixels(New Int32Rect(0, 0, tileSize, tileSize), pixels, tileSize * bytesPerPixel, 0)
+        bitmap.Freeze()
+
+        Dim brush As New ImageBrush(bitmap) With {
+            .TileMode = TileMode.Tile,
+            .ViewportUnits = BrushMappingMode.Absolute,
+            .ViewboxUnits = BrushMappingMode.Absolute,
+            .Viewport = New Rect(0, 0, tileSize, tileSize),
+            .Viewbox = New Rect(0, 0, tileSize, tileSize),
+            .Stretch = Stretch.None
+        }
+        brush.Freeze()
+        Return brush
+    End Function
 
     Public Sub ApplyToVisualTree(root As DependencyObject)
         If root Is Nothing Then Return
