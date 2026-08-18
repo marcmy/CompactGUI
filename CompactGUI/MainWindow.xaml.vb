@@ -1,4 +1,5 @@
 ﻿Imports System.ComponentModel
+Imports System.Windows.Threading
 
 Imports CompactGUI.Core.Settings
 
@@ -20,6 +21,8 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
 
     Public Sub New(settingsService As ISettingsService, navigationService As INavigationService, serviceProvider As IServiceProvider, snackbarService As CustomSnackBarService, viewmodel As MainWindowViewModel)
 
+        CharcoalTheme.ApplyApplicationResources()
+
         ' This call is required by the designer.
         InitializeComponent()
         ' Add any initialization after the InitializeComponent() call.
@@ -34,9 +37,11 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
         DataContext = viewmodel
 
         ConfigureCompressNavigationItem()
+        CharcoalTheme.ApplyRootBackground(RootContentDialog)
 
         NotifyIconTrayMenu.DataContext = viewmodel
 
+        AddHandler Loaded, AddressOf MainWindow_Loaded
         AddHandler Application.GetService(Of HomeViewModel)().PropertyChanged, AddressOf HVPropertyChanged
         AddHandler navigationService.GetNavigationControl.Navigated, AddressOf OnNavigated
 
@@ -53,6 +58,17 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
         End If
 
 
+    End Sub
+
+
+    Private Sub MainWindow_Loaded(sender As Object, e As RoutedEventArgs)
+        ApplyCharcoalPaletteAfterLayout()
+    End Sub
+
+    Private Sub ApplyCharcoalPaletteAfterLayout()
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            New Action(Sub() CharcoalTheme.ApplyToVisualTree(Me)))
     End Sub
 
 
@@ -82,6 +98,8 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
             _MainWindowViewModel.IsActive = False
             ProgTitle.Visibility = Visibility.Visible
         End If
+
+        ApplyCharcoalPaletteAfterLayout()
     End Sub
 
     Private Sub HVPropertyChanged(sender As Object, e As PropertyChangedEventArgs)
