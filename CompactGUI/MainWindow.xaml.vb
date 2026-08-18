@@ -33,6 +33,8 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
         _SettingsService = settingsService
         DataContext = viewmodel
 
+        ConfigureCompressNavigationItem()
+
         NotifyIconTrayMenu.DataContext = viewmodel
 
         AddHandler Application.GetService(Of HomeViewModel)().PropertyChanged, AddressOf HVPropertyChanged
@@ -51,6 +53,20 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
         End If
 
 
+    End Sub
+
+
+    Private Sub ConfigureCompressNavigationItem()
+        If NavigationView.MenuItems.Count = 0 Then Return
+
+        Dim compressItem = TryCast(NavigationView.MenuItems(0), NavigationViewItem)
+        If compressItem Is Nothing Then Return
+
+        compressItem.Content = "Compress"
+        compressItem.Icon = New CompactGuiNavigationIcon With {
+            .Width = 20,
+            .Height = 20
+        }
     End Sub
 
 
