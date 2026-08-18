@@ -16,10 +16,10 @@ Public NotInheritable Class CompactGuiNavigationIcon
             .SnapsToDevicePixels = True
         }
 
-        'Two opposing hollow arrows mirror CompactGUI's application icon without
-        'introducing the four-arrow "move inward" glyph used by Fluent Icons.
-        _northWestArrow = CreateArrowPath("M 2.8,2.8 L 8.2,4.0 L 6.35,5.85 L 9.75,9.25 L 9.25,9.75 L 5.85,6.35 L 4.0,8.2 Z")
-        _southEastArrow = CreateArrowPath("M 17.2,17.2 L 11.8,16.0 L 13.65,14.15 L 10.25,10.75 L 10.75,10.25 L 14.15,13.65 L 16.0,11.8 Z")
+        'CompactGUI's mark is two opposing arrows compacting toward the centre.
+        'Keep them as simple open outlines so the navigation glyph reads cleanly at 20 px.
+        _northWestArrow = CreateArrowPath("M 2.7,2.7 L 9.0,9.0 M 9.0,9.0 L 9.0,5.6 M 9.0,9.0 L 5.6,9.0")
+        _southEastArrow = CreateArrowPath("M 17.3,17.3 L 11.0,11.0 M 11.0,11.0 L 11.0,14.4 M 11.0,11.0 L 14.4,11.0")
 
         canvas.Children.Add(_northWestArrow)
         canvas.Children.Add(_southEastArrow)
@@ -30,7 +30,7 @@ Public NotInheritable Class CompactGuiNavigationIcon
         Return New Path With {
             .Data = Geometry.Parse(data),
             .Stroke = Foreground,
-            .StrokeThickness = 1.15,
+            .StrokeThickness = 1.55,
             .StrokeStartLineCap = PenLineCap.Round,
             .StrokeEndLineCap = PenLineCap.Round,
             .StrokeLineJoin = PenLineJoin.Round,
