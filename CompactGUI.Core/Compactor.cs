@@ -13,11 +13,14 @@ namespace CompactGUI.Core;
 public sealed class Compactor : ICompressor, IDisposable
 {
 
+    private const int HResultCompressionNotBeneficial = unchecked((int)0x80070158);
+
     private readonly string workingDirectory;
     private readonly HashSet<string> excludedFileExtensions;
     private readonly HashSet<string> resumeExcludedFiles;
     private readonly WOFCompressionAlgorithm wofCompressionAlgorithm;
     private readonly CompressionProgressBaseline progressBaseline;
+    private readonly CompressionNotBeneficialCache notBeneficialCache = CompressionNotBeneficialCache.Shared;
 
 
     private IntPtr compressionInfoPtr;
@@ -273,6 +276,11 @@ public sealed class Compactor : ICompressor, IDisposable
 
                 if (result == 0) return new FileOperationResult(true);
 
+                if (result == HResultCompressionNotBeneficial)
+                {
+                    notBeneficialCache.Record(filePath, wofCompressionAlgorithm);
+                }
+
                 string failureReason = Marshal.GetExceptionForHR(result)?.Message
                     ?? $"Windows returned HRESULT 0x{result:X8}.";
                 CompactorLog.FileCompressionFailed(_logger, filePath, failureReason);
@@ -305,6 +313,7 @@ public sealed class Compactor : ICompressor, IDisposable
             .Where(fl =>
                 fl.CompressionMode != wofCompressionAlgorithm
                 && !resumeExcludedFiles.Contains(fl.FileName)
+                && !notBeneficialCache.ShouldSkip(fl.FileName, wofCompressionAlgorithm)
                 && fl.UncompressedSize > clusterSize
                 && ((fl.FileInfo != null && !excludedFileExtensions.Contains(fl.FileInfo.Extension)) || excludedFileExtensions.Contains(fl.FileName))
             )
