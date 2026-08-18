@@ -239,10 +239,30 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
     End Function
 
     <RelayCommand>
-    Private Sub ApplyToAll()
+    Private Async Function ApplyToAll() As Task
         Dim allFolders = Application.GetService(Of HomeViewModel)().Folders
+        Dim targetFolders = allFolders.Where(
+            Function(f) f.FolderActionState <> ActionState.Analysing AndAlso
+                        f.FolderActionState <> ActionState.Working AndAlso
+                        f.FolderActionState <> ActionState.Paused).ToList()
 
-        For Each fl In allFolders.Where(Function(f) f.FolderActionState <> ActionState.Analysing AndAlso f.FolderActionState <> ActionState.Working AndAlso f.FolderActionState <> ActionState.Paused)
+        Dim yesText = LanguageHelper.GetString("UniYes")
+        Dim noText = "No"
+        Dim options = Folder.CompressionOptions
+        Dim message =
+            $"Apply the settings currently shown for {Folder.DisplayName} to all added folders?{Environment.NewLine}{Environment.NewLine}" &
+            $"{LanguageHelper.GetString("CompressionMode")}: {options.SelectedCompressionMode}{Environment.NewLine}" &
+            $"{LanguageHelper.GetString("CompressionConfiguration_SkipFileTypes")}: {If(options.SkipUserSubmittedFiletypes, yesText, noText)}{Environment.NewLine}" &
+            $"{LanguageHelper.GetString("CompressionConfiguration_SkipFileTypesLikelyPoorly")}: {If(options.SkipPoorlyCompressedFileTypes, yesText, noText)}{Environment.NewLine}" &
+            $"{LanguageHelper.GetString("CompressionConfiguration_WatchFolderChanges")}: {If(options.WatchFolderForChanges, yesText, noText)}{Environment.NewLine}{Environment.NewLine}" &
+            "Folders that are currently busy will be left unchanged."
+
+        Dim confirmed = Await Application.GetService(Of IWindowService)().ShowMessageBox(
+            LanguageHelper.GetString("CompressionConfiguration_ApplyAll"),
+            message)
+        If Not confirmed Then Return
+
+        For Each fl In targetFolders
             If fl IsNot Folder Then
                 fl.CompressionOptions = Folder.CompressionOptions.Clone
                 fl.FolderActionState = ActionState.Idle
@@ -250,7 +270,7 @@ Public NotInheritable Class FolderViewModel : Inherits ObservableObject : Implem
         Next
 
         _snackbarService.ShowAppliedToAllFolders()
-    End Sub
+    End Function
 
     <RelayCommand>
     Private Sub Pause()
