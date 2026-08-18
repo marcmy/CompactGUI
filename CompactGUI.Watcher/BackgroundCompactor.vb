@@ -120,7 +120,7 @@ Public Class BackgroundCompactor
                     If folders.Contains(folder) Then
                         'Ensure the folder is still in the original collection before updating.
                         Using analyser As New Core.Analyser(folder.Folder, NullLogger(Of Core.Analyser).Instance)
-                            Dim analysed = Await analyser.GetAnalysedFilesAsync(runCancellation.Token)
+                            Await analyser.GetAnalysedFilesAsync(runCancellation.Token)
 
                             If runCancellation.IsCancellationRequested Then Return False
 
@@ -128,10 +128,6 @@ Public Class BackgroundCompactor
                             folder.LastCheckedSize = analyser.CompressedBytes
                             folder.LastCompressedSize = analyser.CompressedBytes
                             folder.LastSystemModifiedDate = DateTime.Now
-
-                            If analysed IsNot Nothing AndAlso analysed.Count > 0 Then
-                                folder.CompressionLevel = analysed.Select(Function(f) f.CompressionMode).Max
-                            End If
 
                             folder.LastCompressedDate = DateTime.Now
                             folder.HasTargetChanged = False
