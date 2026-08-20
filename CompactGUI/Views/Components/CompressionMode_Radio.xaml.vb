@@ -1,6 +1,8 @@
 ﻿Public Class CompressionMode_Radio
     Inherits RadioButton
 
+    Private Shared ReadOnly SelectionBlueBorder As Brush = New SolidColorBrush(Color.FromRgb(&H4C, &HA5, &HFF))
+    Private Shared ReadOnly UnselectedModeBorder As Brush = New SolidColorBrush(Color.FromArgb(&H38, &HFF, &HFF, &HFF))
 
     Public Shared ReadOnly CompressionModeProperty As DependencyProperty = DependencyProperty.RegisterAttached(
         NameOf(CompressionMode),
@@ -170,15 +172,47 @@
         InitializeComponent()
         AddHandler Me.Loaded, AddressOf OnLoaded
         AddHandler Me.Unloaded, AddressOf OnUnloaded
+        AddHandler Me.Checked, AddressOf OnSelectionStateChanged
+        AddHandler Me.Unchecked, AddressOf OnSelectionStateChanged
     End Sub
 
     Private Sub OnLoaded(sender As Object, e As RoutedEventArgs)
         RemoveHandler GlobalHoverChanged, AddressOf OnGlobalHoverChanged
         AddHandler GlobalHoverChanged, AddressOf OnGlobalHoverChanged
+        ApplySelectionBorder()
     End Sub
 
     Private Sub OnUnloaded(sender As Object, e As RoutedEventArgs)
         RemoveHandler GlobalHoverChanged, AddressOf OnGlobalHoverChanged
+    End Sub
+
+    Private Sub OnSelectionStateChanged(sender As Object, e As RoutedEventArgs)
+        ApplySelectionBorder()
+    End Sub
+
+    Private Sub ApplySelectionBorder()
+        If Template Is Nothing Then Return
+
+        Dim card = TryCast(Template.FindName("CheckMark", Me), Wpf.Ui.Controls.Card)
+        If card Is Nothing Then Return
+
+        Dim selected = IsChecked.GetValueOrDefault(False)
+        Dim borderBrush = If(selected, SelectionBlueBorder, UnselectedModeBorder)
+        Dim borderThickness = If(selected, New Thickness(2), New Thickness(1))
+
+        'Set the Card itself, then also set its rendered ContentBorder directly. The latter
+        'avoids WPF-UI template/style precedence swallowing the selected outline on some states.
+        card.BorderBrush = borderBrush
+        card.BorderThickness = borderThickness
+        card.ApplyTemplate()
+
+        If card.Template IsNot Nothing Then
+            Dim renderedBorder = TryCast(card.Template.FindName("ContentBorder", card), Border)
+            If renderedBorder IsNot Nothing Then
+                renderedBorder.BorderBrush = borderBrush
+                renderedBorder.BorderThickness = borderThickness
+            End If
+        End If
     End Sub
 
     Private Sub OnGlobalHoverChanged(sender As Object, e As EventArgs)
@@ -226,6 +260,7 @@
 
     Public Overrides Sub OnApplyTemplate()
         MyBase.OnApplyTemplate()
+        ApplySelectionBorder()
         If IsForcedDetailed Then
             VisualStateManager.GoToState(Me, "MouseOver", False)
         End If

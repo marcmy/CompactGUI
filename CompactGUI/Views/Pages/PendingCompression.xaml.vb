@@ -7,6 +7,11 @@ Public Class PendingCompression
     Sub New()
         InitializeComponent()
         _settingsService = Application.GetService(Of ISettingsService)
+        AddHandler Loaded, AddressOf PendingCompression_Loaded
+    End Sub
+
+    Private Sub PendingCompression_Loaded(sender As Object, e As RoutedEventArgs)
+        CharcoalTheme.ApplyToVisualTree(Me)
     End Sub
 
     Private Sub CompressionMode_Radio_Checked(sender As Object, e As RoutedEventArgs)

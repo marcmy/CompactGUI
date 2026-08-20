@@ -16,7 +16,7 @@ public sealed class Compactor : ICompressor, IDisposable
     private const int HResultCompressionNotBeneficial = unchecked((int)0x80070158);
 
     private readonly string workingDirectory;
-    private readonly HashSet<string> excludedFileExtensions;
+    private readonly HashSet<string> excludedFilesAndExtensions;
     private readonly HashSet<string> resumeExcludedFiles;
     private readonly WOFCompressionAlgorithm wofCompressionAlgorithm;
     private readonly CompressionProgressBaseline progressBaseline;
@@ -68,7 +68,7 @@ public sealed class Compactor : ICompressor, IDisposable
         CompressionProgressBaseline? progressBaseline = null)
     {
         workingDirectory = folderPath;
-        excludedFileExtensions = new HashSet<string>(excludedFileTypes);
+        excludedFilesAndExtensions = new HashSet<string>(excludedFileTypes, StringComparer.OrdinalIgnoreCase);
         this.resumeExcludedFiles = resumeExcludedFiles is null
             ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(resumeExcludedFiles, StringComparer.OrdinalIgnoreCase);
@@ -315,7 +315,8 @@ public sealed class Compactor : ICompressor, IDisposable
                 && !resumeExcludedFiles.Contains(fl.FileName)
                 && !notBeneficialCache.ShouldSkip(fl.FileName, wofCompressionAlgorithm)
                 && fl.UncompressedSize > clusterSize
-                && ((fl.FileInfo != null && !excludedFileExtensions.Contains(fl.FileInfo.Extension)) || excludedFileExtensions.Contains(fl.FileName))
+                && (fl.FileInfo == null || !excludedFilesAndExtensions.Contains(fl.FileInfo.Extension))
+                && !excludedFilesAndExtensions.Contains(fl.FileName)
             )
             .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize, fl.CompressionMode))
             .ToList();

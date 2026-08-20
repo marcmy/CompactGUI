@@ -74,7 +74,6 @@ Public Class WindowService
             .Content = String.Format(LanguageHelper.GetString("CompressionStop_Message"), folderName),
             .DialogWidth = 640,
             .PrimaryButtonText = LanguageHelper.GetString("CompressionStop_SaveProgress"),
-            .SecondaryButtonText = LanguageHelper.GetString("CompressionStop_UndoProgress"),
             .CloseButtonText = LanguageHelper.GetString("CompressionStop_LeaveAsIs")
         }
 
@@ -87,8 +86,6 @@ Public Class WindowService
         Select Case Await dialog.ShowAsync()
             Case Wpf.Ui.Controls.ContentDialogResult.Primary
                 Return CompressionStopChoice.SaveProgress
-            Case Wpf.Ui.Controls.ContentDialogResult.Secondary
-                Return CompressionStopChoice.UndoProgress
             Case Else
                 Return If(cancelRequested, CompressionStopChoice.Cancel, CompressionStopChoice.LeaveAsIs)
         End Select

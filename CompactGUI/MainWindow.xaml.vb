@@ -1,4 +1,5 @@
 ﻿Imports System.ComponentModel
+Imports System.Windows.Threading
 
 Imports CompactGUI.Core.Settings
 
@@ -20,6 +21,8 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
 
     Public Sub New(settingsService As ISettingsService, navigationService As INavigationService, serviceProvider As IServiceProvider, snackbarService As CustomSnackBarService, viewmodel As MainWindowViewModel)
 
+        CharcoalTheme.ApplyApplicationResources()
+
         ' This call is required by the designer.
         InitializeComponent()
         ' Add any initialization after the InitializeComponent() call.
@@ -33,8 +36,12 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
         _SettingsService = settingsService
         DataContext = viewmodel
 
+        ConfigureCompressNavigationItem()
+        CharcoalTheme.ApplyRootBackground(RootContentDialog)
+
         NotifyIconTrayMenu.DataContext = viewmodel
 
+        AddHandler Loaded, AddressOf MainWindow_Loaded
         AddHandler Application.GetService(Of HomeViewModel)().PropertyChanged, AddressOf HVPropertyChanged
         AddHandler navigationService.GetNavigationControl.Navigated, AddressOf OnNavigated
 
@@ -54,6 +61,31 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
     End Sub
 
 
+    Private Sub MainWindow_Loaded(sender As Object, e As RoutedEventArgs)
+        ApplyCharcoalPaletteAfterLayout()
+    End Sub
+
+    Private Sub ApplyCharcoalPaletteAfterLayout()
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            New Action(Sub() CharcoalTheme.ApplyToVisualTree(Me)))
+    End Sub
+
+
+    Private Sub ConfigureCompressNavigationItem()
+        If NavigationView.MenuItems.Count = 0 Then Return
+
+        Dim compressItem = TryCast(NavigationView.MenuItems(0), NavigationViewItem)
+        If compressItem Is Nothing Then Return
+
+        compressItem.Content = "Compress"
+        compressItem.Icon = New CompactGuiNavigationIcon With {
+            .Width = 20,
+            .Height = 20
+        }
+    End Sub
+
+
     Private _isOnHomePage As Boolean
 
     Private Sub OnNavigated(sender As NavigationView, args As NavigatedEventArgs)
@@ -66,6 +98,8 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
             _MainWindowViewModel.IsActive = False
             ProgTitle.Visibility = Visibility.Visible
         End If
+
+        ApplyCharcoalPaletteAfterLayout()
     End Sub
 
     Private Sub HVPropertyChanged(sender As Object, e As PropertyChangedEventArgs)
