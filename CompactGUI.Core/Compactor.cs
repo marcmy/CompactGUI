@@ -13,11 +13,14 @@ namespace CompactGUI.Core;
 public sealed class Compactor : ICompressor, IDisposable
 {
 
+    private const int HResultCompressionNotBeneficial = unchecked((int)0x80070158);
+
     private readonly string workingDirectory;
     private readonly HashSet<string> excludedFileExtensions;
     private readonly HashSet<string> resumeExcludedFiles;
     private readonly WOFCompressionAlgorithm wofCompressionAlgorithm;
     private readonly CompressionProgressBaseline progressBaseline;
+    private readonly CompressionNotBeneficialCache notBeneficialCache = CompressionNotBeneficialCache.Shared;
 
 
     private IntPtr compressionInfoPtr;
@@ -31,6 +34,9 @@ public sealed class Compactor : ICompressor, IDisposable
     private readonly ConcurrentDictionary<string, WOFCompressionAlgorithm> processedFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> failedFiles = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<CompressionWorkItem> workItems = [];
+    private long progressVersion = 0;
+    private string currentPhase = "Idle";
+    private string? currentFile;
 
     private ILogger<Compactor> _logger;
 
@@ -48,6 +54,9 @@ public sealed class Compactor : ICompressor, IDisposable
     public int DisplayFailedFiles => progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount);
     public long DisplayTotalBytes { get; private set; }
     public int DisplayTotalFiles { get; private set; }
+    public long ProgressVersion => Interlocked.Read(ref progressVersion);
+    public string CurrentPhase => Volatile.Read(ref currentPhase);
+    public string? CurrentFile => Volatile.Read(ref currentFile);
 
     public Compactor(
         string folderPath,
@@ -80,11 +89,19 @@ public sealed class Compactor : ICompressor, IDisposable
 
     }
 
+    private void ReportProgress(string phase, string? file = null)
+    {
+        Volatile.Write(ref currentPhase, phase);
+        Volatile.Write(ref currentFile, file);
+        Interlocked.Increment(ref progressVersion);
+    }
+
 
     public async Task<bool> RunAsync(List<string>? filesList, IProgress<CompressionProgress>? progressMonitor = null, int maxParallelism = 1)
     {
         if(cancellationTokenSource.IsCancellationRequested) { return false; }
 
+        ReportProgress("Building work list");
         CompactorLog.BuildingWorkingFilesList(_logger, workingDirectory);
         List<FileDetails> workingFiles;
         try
@@ -93,11 +110,13 @@ public sealed class Compactor : ICompressor, IDisposable
         }
         catch (OperationCanceledException)
         {
+            ReportProgress("Idle");
             CompactorLog.CompressionCanceled(_logger);
             return false;
         }
         catch (Exception ex)
         {
+            ReportProgress("Idle");
             CompactorLog.CompressionFailed(_logger, ex.Message);
             return false;
         }
@@ -117,6 +136,7 @@ public sealed class Compactor : ICompressor, IDisposable
         processedFiles.Clear();
         failedFiles.Clear();
 
+        ReportProgress("Work list ready");
         CompactorLog.WorkListBuilt(
             _logger,
             WorkItemCount,
@@ -142,6 +162,7 @@ public sealed class Compactor : ICompressor, IDisposable
                 TotalFiles = DisplayTotalFiles,
                 FailedFiles = progressBaseline.FailedFiles
             });
+            ReportProgress("Idle");
             CompactorLog.CompressionCompleted(_logger, 0);
             return false;
         }
@@ -151,6 +172,7 @@ public sealed class Compactor : ICompressor, IDisposable
         if (maxParallelism <= 0) maxParallelism = Environment.ProcessorCount;
         ParallelOptions parallelOptions = new() { MaxDegreeOfParallelism = maxParallelism, CancellationToken = cancellationTokenSource.Token };
 
+        ReportProgress("Compressing");
         CompactorLog.StartingCompression(_logger, workingDirectory, wofCompressionAlgorithm.ToString(), maxParallelism);
         try
         {
@@ -163,23 +185,26 @@ public sealed class Compactor : ICompressor, IDisposable
                 }).ConfigureAwait(false);
         }
         catch (OperationCanceledException){
+            ReportProgress("Idle");
             CompactorLog.CompressionCanceled(_logger);
             return false; 
         }
         catch (Exception ex){ 
+            ReportProgress("Idle");
             CompactorLog.CompressionFailed(_logger, ex.Message);
             return false; 
         }
         finally { sw.Stop();}
 
 
-        
+        ReportProgress("Idle");
         CompactorLog.CompressionCompleted(_logger, Math.Round(sw.Elapsed.TotalSeconds, 3));
         return true;
     }
 
     private async Task PauseAndProcessFile(FileDetails file, long totalFilesSize, CancellationToken token, IProgress<CompressionProgress>? progressMonitor)
     {
+        ReportProgress("Waiting to process file", file.FileName);
         CompactorLog.ProcessingFile(_logger, file.FileName, file.UncompressedSize);
 
         await pauseSemaphore.WaitAsync(token).ConfigureAwait(false);
@@ -197,7 +222,9 @@ public sealed class Compactor : ICompressor, IDisposable
             progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount),
             DisplayTotalBytes));
 
+        ReportProgress("Compressing file", file.FileName);
         FileOperationResult operation = WOFCompressFile(file.FileName);
+        ReportProgress("Processed file", file.FileName);
         bool succeeded = operation.Succeeded;
         long? compressedSize = null;
         if (succeeded)
@@ -249,6 +276,11 @@ public sealed class Compactor : ICompressor, IDisposable
 
                 if (result == 0) return new FileOperationResult(true);
 
+                if (result == HResultCompressionNotBeneficial)
+                {
+                    notBeneficialCache.Record(filePath, wofCompressionAlgorithm);
+                }
+
                 string failureReason = Marshal.GetExceptionForHR(result)?.Message
                     ?? $"Windows returned HRESULT 0x{result:X8}.";
                 CompactorLog.FileCompressionFailed(_logger, filePath, failureReason);
@@ -281,6 +313,7 @@ public sealed class Compactor : ICompressor, IDisposable
             .Where(fl =>
                 fl.CompressionMode != wofCompressionAlgorithm
                 && !resumeExcludedFiles.Contains(fl.FileName)
+                && !notBeneficialCache.ShouldSkip(fl.FileName, wofCompressionAlgorithm)
                 && fl.UncompressedSize > clusterSize
                 && ((fl.FileInfo != null && !excludedFileExtensions.Contains(fl.FileInfo.Extension)) || excludedFileExtensions.Contains(fl.FileName))
             )
