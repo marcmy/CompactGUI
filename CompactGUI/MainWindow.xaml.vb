@@ -13,7 +13,7 @@ Class MainWindow : Implements INavigationWindow, INotifyPropertyChanged
     Private _MainWindowViewModel As MainWindowViewModel
     Private _SettingsService As ISettingsService
 
-    Public ReadOnly Property ContentDialogHost As ContentPresenter
+    Public ReadOnly Property ContentDialogHost As Wpf.Ui.Controls.ContentDialogHost
         Get
             Return RootContentDialogPresenter
         End Get
