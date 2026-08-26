@@ -1,5 +1,4 @@
-﻿
-using CompactGUI.Logging.Core;
+﻿using CompactGUI.Logging.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32.SafeHandles;
@@ -14,27 +13,67 @@ namespace CompactGUI.Core;
 public sealed class Compactor : ICompressor, IDisposable
 {
 
+    private const int HResultCompressionNotBeneficial = unchecked((int)0x80070158);
+
     private readonly string workingDirectory;
-    private readonly HashSet<string> exclusionList;
+    private readonly HashSet<string> excludedFilesAndExtensions;
+    private readonly HashSet<string> resumeExcludedFiles;
     private readonly WOFCompressionAlgorithm wofCompressionAlgorithm;
+    private readonly CompressionProgressBaseline progressBaseline;
+    private readonly CompressionNotBeneficialCache notBeneficialCache = CompressionNotBeneficialCache.Shared;
 
 
     private IntPtr compressionInfoPtr;
     private UInt32 compressionInfoSize;
 
     private long totalProcessedBytes = 0;
+    private int processedFileCount = 0;
+    private int failedFileCount = 0;
     private readonly SemaphoreSlim pauseSemaphore = new SemaphoreSlim(1, 2);
     private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+    private readonly ConcurrentDictionary<string, WOFCompressionAlgorithm> processedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> failedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CompressionWorkItem> workItems = [];
+    private long progressVersion = 0;
+    private string currentPhase = "Idle";
+    private string? currentFile;
 
     private ILogger<Compactor> _logger;
 
     private Analyser _analyser;
 
-    public Compactor(string folderPath, WOFCompressionAlgorithm compressionLevel, string[] excludedFileTypes, Analyser analyser, ILogger<Compactor>? logger = null)
+    public IReadOnlyDictionary<string, WOFCompressionAlgorithm> ProcessedFiles => processedFiles;
+    public IReadOnlyCollection<string> FailedFiles => failedFiles.Keys.ToList();
+    public IReadOnlyList<CompressionWorkItem> RemainingWorkItems => workItems
+        .Where(item => !processedFiles.ContainsKey(item.FileName) && !failedFiles.ContainsKey(item.FileName))
+        .ToList();
+    public bool HasBuiltWorkList { get; private set; }
+    public int WorkItemCount { get; private set; }
+    public long DisplayProcessedBytes => progressBaseline.ProcessedBytes + Interlocked.Read(ref totalProcessedBytes);
+    public int DisplayProcessedFiles => progressBaseline.ProcessedFiles + Volatile.Read(ref processedFileCount);
+    public int DisplayFailedFiles => progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount);
+    public long DisplayTotalBytes { get; private set; }
+    public int DisplayTotalFiles { get; private set; }
+    public long ProgressVersion => Interlocked.Read(ref progressVersion);
+    public string CurrentPhase => Volatile.Read(ref currentPhase);
+    public string? CurrentFile => Volatile.Read(ref currentFile);
+
+    public Compactor(
+        string folderPath,
+        WOFCompressionAlgorithm compressionLevel,
+        string[] excludedFileTypes,
+        Analyser analyser,
+        ILogger<Compactor>? logger = null,
+        IReadOnlyCollection<string>? resumeExcludedFiles = null,
+        CompressionProgressBaseline? progressBaseline = null)
     {
         workingDirectory = folderPath;
-        exclusionList = new HashSet<string>(excludedFileTypes, StringComparer.OrdinalIgnoreCase);
+        excludedFilesAndExtensions = new HashSet<string>(excludedFileTypes, StringComparer.OrdinalIgnoreCase);
+        this.resumeExcludedFiles = resumeExcludedFiles is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(resumeExcludedFiles, StringComparer.OrdinalIgnoreCase);
         wofCompressionAlgorithm = compressionLevel;
+        this.progressBaseline = progressBaseline ?? default;
         _logger = logger ?? NullLogger<Compactor>.Instance;
         _analyser = analyser;
         InitializeCompressionInfoPointer();
@@ -50,21 +89,90 @@ public sealed class Compactor : ICompressor, IDisposable
 
     }
 
-    public async Task<bool> RunAsync(List<string> filesList, IProgress<CompressionProgress> progressMonitor = null, int maxParallelism = 1)
+    private void ReportProgress(string phase, string? file = null)
+    {
+        Volatile.Write(ref currentPhase, phase);
+        Volatile.Write(ref currentFile, file);
+        Interlocked.Increment(ref progressVersion);
+    }
+
+
+    public async Task<bool> RunAsync(List<string>? filesList, IProgress<CompressionProgress>? progressMonitor = null, int maxParallelism = 1)
     {
         if(cancellationTokenSource.IsCancellationRequested) { return false; }
 
+        ReportProgress("Building work list");
         CompactorLog.BuildingWorkingFilesList(_logger, workingDirectory);
-        var workingFiles = await BuildWorkingFilesList().ConfigureAwait(false);
+        List<FileDetails> workingFiles;
+        try
+        {
+            workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            ReportProgress("Idle");
+            CompactorLog.CompressionCanceled(_logger);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ReportProgress("Idle");
+            CompactorLog.CompressionFailed(_logger, ex.Message);
+            return false;
+        }
+
+        WorkItemCount = workingFiles.Count;
+        HasBuiltWorkList = true;
         long totalFilesSize = workingFiles.Sum((f) => f.UncompressedSize);
+        workItems = workingFiles
+            .Select(file => new CompressionWorkItem(file.FileName, file.UncompressedSize))
+            .ToList();
+        DisplayTotalBytes = progressBaseline.ProcessedBytes + totalFilesSize;
+        DisplayTotalFiles = progressBaseline.ProcessedFiles + WorkItemCount;
 
         totalProcessedBytes = 0;
+        processedFileCount = 0;
+        failedFileCount = 0;
+        processedFiles.Clear();
+        failedFiles.Clear();
+
+        ReportProgress("Work list ready");
+        CompactorLog.WorkListBuilt(
+            _logger,
+            WorkItemCount,
+            totalFilesSize,
+            progressBaseline.ProcessedFiles,
+            progressBaseline.ProcessedBytes);
+
+        CompressionProgress workListProgress = CompressionProgress.CreateWorkList(workItems, DisplayTotalBytes);
+        workListProgress.ProgressPercent = CalculateProgressPercent(progressBaseline.ProcessedBytes, DisplayTotalBytes);
+        workListProgress.ProcessedBytes = progressBaseline.ProcessedBytes;
+        workListProgress.ProcessedFiles = progressBaseline.ProcessedFiles;
+        workListProgress.TotalFiles = DisplayTotalFiles;
+        workListProgress.FailedFiles = progressBaseline.FailedFiles;
+        progressMonitor?.Report(workListProgress);
+
+        if (workingFiles.Count == 0)
+        {
+            progressMonitor?.Report(new CompressionProgress(100, string.Empty)
+            {
+                ProcessedBytes = DisplayTotalBytes,
+                TotalBytes = DisplayTotalBytes,
+                ProcessedFiles = DisplayTotalFiles,
+                TotalFiles = DisplayTotalFiles,
+                FailedFiles = progressBaseline.FailedFiles
+            });
+            ReportProgress("Idle");
+            CompactorLog.CompressionCompleted(_logger, 0);
+            return false;
+        }
 
         var sw = Stopwatch.StartNew();
 
         if (maxParallelism <= 0) maxParallelism = Environment.ProcessorCount;
         ParallelOptions parallelOptions = new() { MaxDegreeOfParallelism = maxParallelism, CancellationToken = cancellationTokenSource.Token };
 
+        ReportProgress("Compressing");
         CompactorLog.StartingCompression(_logger, workingDirectory, wofCompressionAlgorithm.ToString(), maxParallelism);
         try
         {
@@ -77,68 +185,140 @@ public sealed class Compactor : ICompressor, IDisposable
                 }).ConfigureAwait(false);
         }
         catch (OperationCanceledException){
+            ReportProgress("Idle");
             CompactorLog.CompressionCanceled(_logger);
             return false; 
         }
         catch (Exception ex){ 
+            ReportProgress("Idle");
             CompactorLog.CompressionFailed(_logger, ex.Message);
             return false; 
         }
         finally { sw.Stop();}
 
 
-        
+        ReportProgress("Idle");
         CompactorLog.CompressionCompleted(_logger, Math.Round(sw.Elapsed.TotalSeconds, 3));
         return true;
     }
 
-    private async Task PauseAndProcessFile(FileDetails file, long totalFilesSize, CancellationToken token, IProgress<CompressionProgress> progressMonitor)
+    private async Task PauseAndProcessFile(FileDetails file, long totalFilesSize, CancellationToken token, IProgress<CompressionProgress>? progressMonitor)
     {
+        ReportProgress("Waiting to process file", file.FileName);
         CompactorLog.ProcessingFile(_logger, file.FileName, file.UncompressedSize);
 
         await pauseSemaphore.WaitAsync(token).ConfigureAwait(false);
         pauseSemaphore.Release();
 
-        var res = WOFCompressFile(file.FileName);
-        Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
-        progressMonitor?.Report(new CompressionProgress((int)((double)totalProcessedBytes / totalFilesSize * 100.0), file.FileName));
+        var workItem = new CompressionWorkItem(file.FileName, file.UncompressedSize);
+        long currentProcessedBytes = progressBaseline.ProcessedBytes + Interlocked.Read(ref totalProcessedBytes);
+        progressMonitor?.Report(CompressionProgress.CreateFileUpdate(
+            CalculateProgressPercent(currentProcessedBytes, DisplayTotalBytes),
+            workItem,
+            CompressionFileState.Processing,
+            currentProcessedBytes,
+            progressBaseline.ProcessedFiles + Volatile.Read(ref processedFileCount),
+            DisplayTotalFiles,
+            progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount),
+            DisplayTotalBytes));
+
+        ReportProgress("Compressing file", file.FileName);
+        FileOperationResult operation = WOFCompressFile(file.FileName);
+        ReportProgress("Processed file", file.FileName);
+        bool succeeded = operation.Succeeded;
+        long? compressedSize = null;
+        if (succeeded)
+        {
+            processedFiles.TryAdd(file.FileName, file.OriginalCompressionMode);
+            long fileSizeOnDisk = SharedMethods.GetFileSizeOnDisk(file.FileName);
+            if (fileSizeOnDisk >= 0) compressedSize = fileSizeOnDisk;
+        }
+        else
+        {
+            Interlocked.Increment(ref failedFileCount);
+            failedFiles.TryAdd(file.FileName, 0);
+        }
+
+        long processedBytes = progressBaseline.ProcessedBytes + Interlocked.Add(ref totalProcessedBytes, file.UncompressedSize);
+        int processedFilesCount = progressBaseline.ProcessedFiles + Interlocked.Increment(ref processedFileCount);
+        progressMonitor?.Report(CompressionProgress.CreateFileUpdate(
+            CalculateProgressPercent(processedBytes, DisplayTotalBytes),
+            workItem,
+            succeeded ? CompressionFileState.Completed : CompressionFileState.Failed,
+            processedBytes,
+            processedFilesCount,
+            DisplayTotalFiles,
+            progressBaseline.FailedFiles + Volatile.Read(ref failedFileCount),
+            DisplayTotalBytes,
+            compressedSize,
+            operation.FailureReason));
 
     }
 
-    private unsafe int? WOFCompressFile(string filePath)
+    private static int CalculateProgressPercent(long processedBytes, long totalBytes)
+    {
+        return totalBytes <= 0
+            ? 100
+            : Math.Clamp((int)((double)processedBytes / totalBytes * 100.0), 0, 100);
+    }
+
+    private unsafe FileOperationResult WOFCompressFile(string filePath)
     {
         try
         {
             using (SafeFileHandle fs = File.OpenHandle(filePath))
             {
-                return PInvoke.WofSetFileDataLocation(fs, (uint)WOFHelper.WOF_PROVIDER_FILE, compressionInfoPtr.ToPointer(), compressionInfoSize);
+                int result = PInvoke.WofSetFileDataLocation(
+                    fs,
+                    (uint)WOFHelper.WOF_PROVIDER_FILE,
+                    compressionInfoPtr.ToPointer(),
+                    compressionInfoSize);
+
+                if (result == 0) return new FileOperationResult(true);
+
+                if (result == HResultCompressionNotBeneficial)
+                {
+                    notBeneficialCache.Record(filePath, wofCompressionAlgorithm);
+                }
+
+                string failureReason = Marshal.GetExceptionForHR(result)?.Message
+                    ?? $"Windows returned HRESULT 0x{result:X8}.";
+                CompactorLog.FileCompressionFailed(_logger, filePath, failureReason);
+                return new FileOperationResult(false, failureReason);
             }
         }
         catch (Exception ex)
         {
             CompactorLog.FileCompressionFailed(_logger, filePath, ex.Message);
-            return null;
+            return new FileOperationResult(false, ex.Message);
         }
     }
 
-    public async Task<IEnumerable<FileDetails>> BuildWorkingFilesList()
+    public async Task<IEnumerable<FileDetails>> BuildWorkingFilesList(IReadOnlyCollection<string>? filesList = null)
     {
+        if (filesList is { Count: > 0 })
+        {
+            return filesList
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(File.Exists)
+                .Select(file => new FileDetails(file, new FileInfo(file).Length, WOFCompressionAlgorithm.NO_COMPRESSION))
+                .ToList();
+        }
+
         uint clusterSize = SharedMethods.GetClusterSize(workingDirectory);
 
-        
-        var analysedFiles = await _analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token);
-
-        if (analysedFiles is null) return Enumerable.Empty<FileDetails>();
-
-        var excludedFiles = SkipListMatcher.GetExcludedFiles(workingDirectory, analysedFiles.Select(f => f.FileName), exclusionList);
+        var analysedFiles = await _analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token) ?? [];
 
         return analysedFiles
             .Where(fl =>
                 fl.CompressionMode != wofCompressionAlgorithm
+                && !resumeExcludedFiles.Contains(fl.FileName)
+                && !notBeneficialCache.ShouldSkip(fl.FileName, wofCompressionAlgorithm)
                 && fl.UncompressedSize > clusterSize
-                && !excludedFiles.Contains(fl.FileName)
+                && (fl.FileInfo == null || !excludedFilesAndExtensions.Contains(fl.FileInfo.Extension))
+                && !excludedFilesAndExtensions.Contains(fl.FileName)
             )
-            .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize))
+            .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize, fl.CompressionMode))
             .ToList();
     }
 
@@ -178,7 +358,6 @@ public sealed class Compactor : ICompressor, IDisposable
     }
 
 
-    public readonly record struct FileDetails(string FileName, long UncompressedSize);
-
+    public readonly record struct FileDetails(string FileName, long UncompressedSize, WOFCompressionAlgorithm OriginalCompressionMode);
 
 }

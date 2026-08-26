@@ -5,10 +5,6 @@ Public Class CompressionOptions : Inherits ObservableObject
     <ObservableProperty> Private _SkipPoorlyCompressedFileTypes As Boolean
     <ObservableProperty> Private _SkipUserSubmittedFiletypes As Boolean
     <ObservableProperty> Private _WatchFolderForChanges As Boolean
-    ' Nothing = unconfigured (baseline flags apply). A non-null list (even empty) has priority.
-    <ObservableProperty> Private _SkipList As List(Of String)
-    ' Master toggle: when off, no skiplist source is applied.
-    <ObservableProperty> Private _SkipListEnabled As Boolean = True
 
 
     Public Function Clone() As CompressionOptions
@@ -16,9 +12,7 @@ Public Class CompressionOptions : Inherits ObservableObject
             .SelectedCompressionMode = SelectedCompressionMode,
             .SkipPoorlyCompressedFileTypes = SkipPoorlyCompressedFileTypes,
             .SkipUserSubmittedFiletypes = SkipUserSubmittedFiletypes,
-            .WatchFolderForChanges = WatchFolderForChanges,
-            .SkipList = If(SkipList Is Nothing, Nothing, New List(Of String)(SkipList)),
-            .SkipListEnabled = SkipListEnabled
+            .WatchFolderForChanges = WatchFolderForChanges
         }
 
         Return copy

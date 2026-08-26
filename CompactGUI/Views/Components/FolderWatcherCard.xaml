@@ -37,7 +37,6 @@
             <ColumnDefinition />
         </Grid.ColumnDefinitions>
 
-
         <StackPanel Grid.Row="0" Orientation="Horizontal">
             <TextBlock Grid.Row="0"
                        VerticalAlignment="Top"
@@ -64,10 +63,6 @@
                 </Button.ToolTip>
             </Button>
         </StackPanel>
-
-
-
-
 
         <TextBlock Grid.Row="1"
                    HorizontalAlignment="Left" VerticalAlignment="Top"
@@ -126,11 +121,9 @@
                     Visibility="{Binding Watcher.IsRunning, Converter={StaticResource BooleanToInverseVisibilityConverter}}" />
         </StackPanel>
 
-
         <Separator Grid.Row="2" Grid.ColumnSpan="2"
                    Height="1"
                    VerticalAlignment="Bottom" />
-
 
         <ListView x:Name="UiWatcherListView"
                   Grid.Row="3" Grid.ColumnSpan="2"
@@ -180,11 +173,7 @@
                             Margin="0 0" Padding="6 16"
                             d:Height="100" Background="#00FFFFFF" KeyboardNavigation.TabNavigation="None" MouseDown="ToggleBorderHeight" MouseEnter="ToggleBorderHeight">
 
-
                         <Grid>
-
-
-
                             <Label>
                                 <StackPanel Orientation="Horizontal">
 
@@ -192,6 +181,26 @@
                                                      Margin="0 0 6 0" Padding="7"
                                                      Foreground="#FFBFC7CE" IsIndeterminate="True"
                                                      Visibility="{Binding IsWorking, Converter={StaticResource BoolToVisConverter}, Mode=OneWay}" />
+
+                                    <Border Width="15" Height="15"
+                                            Margin="0 0 6 0"
+                                            VerticalAlignment="Center"
+                                            Background="#D9A300"
+                                            CornerRadius="8"
+                                            Visibility="{Binding IsAvailable, Converter={StaticResource BooleanToInverseVisibilityConverter}}">
+                                        <TextBlock Margin="0 -1 0 0"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   FontSize="11" FontWeight="Bold" Foreground="White"
+                                                   Text="!" />
+                                        <Border.ToolTip>
+                                            <ToolTip ToolTipService.InitialShowDelay="100">
+                                                <TextBlock FontSize="12" Foreground="#FFBFC7CE"
+                                                           Text="Folder is currently unavailable. It will remain in the watchlist and be retried automatically."
+                                                           TextWrapping="NoWrap" />
+                                            </ToolTip>
+                                        </Border.ToolTip>
+                                    </Border>
+
                                     <Viewbox Grid.Column="1"
                                              Width="12" Height="12"
                                              Margin="0 0 5 0" HorizontalAlignment="Left"
@@ -260,10 +269,7 @@
 
                                 <TextBlock.Text>
                                     <MultiBinding StringFormat="{}{0} {1}">
-                                        <!--  Value  -->
                                         <Binding Converter="{StaticResource BytesToReadableConverter}" ConverterParameter="0" Path="SavedSpace" />
-
-                                        <!--  Localized text  -->
                                         <Binding Source="{local:Localize Watcher_WatchedSaved}" />
                                     </MultiBinding>
                                 </TextBlock.Text>
@@ -294,8 +300,6 @@
                                                Text="{Binding LastSystemModifiedDate, Converter={StaticResource RelativeDateConverter}}" />
                                 </StackPanel>
 
-
-
                                 <Button HorizontalAlignment="Right"
                                         Background="#DD6B6B"
                                         Command="{Binding ElementName=UiWatcherListView, Path=DataContext.RemoveWatcherCommand}"
@@ -315,7 +319,8 @@
                                         Background="#6B8399"
                                         Command="{Binding ElementName=UiWatcherListView, Path=DataContext.AddWatchedFolderToQueueCommand}"
                                         CommandParameter="{Binding}"
-                                        Foreground="White">
+                                        Foreground="White"
+                                        IsEnabled="{Binding IsAvailable}">
                                     <ui:SymbolIcon FontSize="14" RenderTransformOrigin="0.5,0.5" Symbol="ArrowMinimize20">
                                         <ui:SymbolIcon.RenderTransform>
                                             <TransformGroup>
@@ -339,6 +344,7 @@
                                         Command="{Binding ElementName=UiWatcherListView, Path=DataContext.ReAnalyseWatchedCommand}"
                                         CommandParameter="{Binding}"
                                         Foreground="White"
+                                        IsEnabled="{Binding IsAvailable}"
                                         Visibility="{Binding IsWorking, Converter={StaticResource BooleanToInverseVisibilityConverter}}">
                                     <ui:FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14" Glyph="&#xE9F3;" />
                                     <Button.ToolTip>
@@ -352,7 +358,6 @@
 
                             </Grid>
 
-
                         </Grid>
 
                     </Border>
@@ -360,8 +365,6 @@
             </ListView.ItemTemplate>
 
         </ListView>
-
-
 
     </Grid>
 </UserControl>

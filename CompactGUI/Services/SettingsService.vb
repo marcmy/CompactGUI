@@ -12,15 +12,9 @@ Public Class SettingsService : Implements ISettingsService
     Public ReadOnly Property SettingsVersion As Decimal Implements ISettingsService.SettingsVersion
     Public Property AppSettings As Settings Implements ISettingsService.AppSettings
 
-    Public Sub New(truePortable As Boolean)
+    Public Sub New()
 
-        If truePortable Then
-            DataFolder = New IO.DirectoryInfo(IO.Path.Combine(IO.Path.GetDirectoryName(AppContext.BaseDirectory), ".CompactGUIData"))
-        Else
-            DataFolder = New IO.DirectoryInfo(IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IridiumIO", "CompactGUI"))
-        End If
-
-
+        DataFolder = New IO.DirectoryInfo(IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IridiumIO", "CompactGUI"))
         SettingsJSONFile = New IO.FileInfo(IO.Path.Combine(DataFolder.FullName, "settings.json"))
 
         SettingsVersion = 1.2

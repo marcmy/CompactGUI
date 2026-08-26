@@ -15,7 +15,6 @@ public sealed class Analyser : IDisposable
     public bool HasFolderChanged => _folderMonitor.HasChanged;
     public DateTime LastFolderChanged => _folderMonitor.LastChanged;
 
-    public bool IsDirectStorage { get; private set; }
 
     public Analyser(string folder, ILogger<Analyser> logger)
     {
@@ -66,7 +65,7 @@ public sealed class Analyser : IDisposable
     {
 
         List<AnalysedFileDetails>? AnalysedFileDetails;
-        IsDirectStorage = false;
+
         AnalyserLog.StartingAnalysis(_logger, FolderName);
         Stopwatch sw = Stopwatch.StartNew();
         try
@@ -78,8 +77,6 @@ public sealed class Analyser : IDisposable
                 .Select(AnalyseFile)
                 .OfType<AnalysedFileDetails>()
                 .ToList();
-
-            IsDirectStorage = allFiles.Any(f => Path.GetFileName(f).Equals("dstorage.dll", StringComparison.OrdinalIgnoreCase));
 
             AnalysedFileDetails = fileDetails;
         }
@@ -128,10 +125,12 @@ public sealed class Analyser : IDisposable
 
     public List<ExtensionResult> GetPoorlyCompressedExtensions()
     {
+        List<AnalysedFileDetails> analysedFileDetails = _analysedFileDetails ?? [];
+
         // Only use PLINQ if the list is large enough to benefit from parallel processing
-        IEnumerable<AnalysedFileDetails> query = _analysedFileDetails?.Count <= 10000
-            ? _analysedFileDetails
-            : _analysedFileDetails.AsParallel();
+        IEnumerable<AnalysedFileDetails> query = analysedFileDetails.Count <= 10000
+            ? analysedFileDetails
+            : analysedFileDetails.AsParallel();
 
         return query
                 .Where(fl => fl.UncompressedSize > 0)
@@ -154,5 +153,3 @@ public sealed class Analyser : IDisposable
         _analysedFileDetails?.Clear();
     }
 }
-
-

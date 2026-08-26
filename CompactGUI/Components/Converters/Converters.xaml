@@ -8,6 +8,8 @@
     <local:EnumToRadioButtonConverter x:Key="EnumToRadioButtonConverter" />
     <local:DecimalToPercentageConverter x:Key="DecimalToPercentageConverter" />
     <local:BytesToReadableConverter x:Key="BytesToReadableConverter" />
+    <local:CompressionFileStateToStringConverter x:Key="CompressionFileStateToStringConverter" />
+    <local:CompressionFileStateToBrushConverter x:Key="CompressionFileStateToBrushConverter" />
     <local:StrippedFolderPathConverter x:Key="StrippedFolderPathConverter" />
     <local:RelativeDateConverter x:Key="RelativeDateConverter" />
     <local:CompressionLevelAbbreviatedConverter x:Key="CompressionLevelAbbreviatedConverter" />

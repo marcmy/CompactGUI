@@ -3,7 +3,6 @@ Imports System
 Imports System.IO
 Imports System.Net.Http
 Imports System.Threading.Tasks
-Imports System.Windows.Forms
 Imports System.Reflection
 Imports System.Runtime.InteropServices
 
@@ -22,6 +21,9 @@ Public Class SteamFolder : Inherits CompressableFolder
         Me.FolderName = folderName
         Me.SteamAppID = steamappId
         Me.DisplayName = displayName
+
+        If Not CompressableFolderService.IsHDD(Me) AndAlso Core.SharedMethods.IsDirectStorageGameFolder(folderName) Then Application.GetService(Of CustomSnackBarService).ShowDirectStorageWarning(displayName)
+
     End Sub
 
 
@@ -76,8 +78,8 @@ Public Class SteamFolder : Inherits CompressableFolder
 
         Dim tempImg As BitmapImage = Nothing
 
-        Dim EnvironmentPath = Application.GetService(Of ISettingsService).DataFolder.FullName
-        Dim imageDir = Path.Combine(EnvironmentPath, "SteamCache")
+        Dim EnvironmentPath = Environment.GetEnvironmentVariable("IridiumIO", EnvironmentVariableTarget.User)
+        Dim imageDir = Path.Combine(EnvironmentPath, "CompactGUI", "SteamCache")
         Dim imagePath = Path.Combine(imageDir, $"{folder.SteamAppID}.jpg")
 
         If Not Directory.Exists(imageDir) Then Directory.CreateDirectory(imageDir)

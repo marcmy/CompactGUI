@@ -15,7 +15,7 @@
                 Return IdleTemplate
             Case ActionState.Analysing
                 Return AnalysingTemplate
-            Case ActionState.Working, ActionState.Paused
+            Case ActionState.Working, ActionState.Paused, ActionState.Undoing
                 Return CompressingTemplate
             Case ActionState.Results
                 Return ResultsTemplate
@@ -42,7 +42,7 @@ Public Class HomeViewStateTemplateSelector
                 Return IdleTemplate
             Case ActionState.Analysing
                 Return AnalysingTemplate
-            Case ActionState.Working, ActionState.Paused
+            Case ActionState.Working, ActionState.Paused, ActionState.Undoing
                 Return CompressingTemplate
             Case ActionState.Results
                 Return ResultsTemplate

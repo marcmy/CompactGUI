@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using Windows.Win32;
@@ -58,7 +59,7 @@ public static class SharedMethods
             FolderVerificationResult.OneDriveFolder => "Files synced with OneDrive cannot be compressed as they use a different storage structure",
             FolderVerificationResult.NonNTFSDrive => "Cannot compress a directory on a non-NTFS drive",
             FolderVerificationResult.InsufficientPermission => "Insufficient permission to access this folder.",
-            FolderVerificationResult.LZNT1Compressed => "Folders using Windows' compression are not supported. Disable Windows compression on this folder first.",
+            FolderVerificationResult.LZNT1Compressed => "This folder is marked so new files inherit Windows NTFS compression. Clear the folder's compression flag before adding it.",
             _ => "Unknown error"
         };
     }
@@ -149,17 +150,14 @@ public static class SharedMethods
 
 
 
-    public static unsafe uint GetClusterSize(string folderPath)
+    public static uint GetClusterSize(string folderPath)
     {
-        UInt32 lpSectorsPerCluster;
-        UInt32 lpBytesPerSector;
-
         PInvoke.GetDiskFreeSpace(
             new DirectoryInfo(folderPath).Root.ToString(),
-            &lpSectorsPerCluster,
-            &lpBytesPerSector,
-            null,
-            null
+            out UInt32 lpSectorsPerCluster,
+            out UInt32 lpBytesPerSector,
+            out _,
+            out _
         );
 
         return lpSectorsPerCluster * lpBytesPerSector;
@@ -167,10 +165,9 @@ public static class SharedMethods
     }
 
 
-    public static unsafe long GetFileSizeOnDisk(string file)
+    public static long GetFileSizeOnDisk(string file)
     {
-        uint highOrder;
-        uint lowOrder = PInvoke.GetCompressedFileSize(file, &highOrder);
+        uint lowOrder = PInvoke.GetCompressedFileSize(file, out uint highOrder);
         if (lowOrder == 0xFFFFFFFF && (Marshal.GetLastWin32Error() != 0)) return -1;
         return ((long)highOrder << 32) | lowOrder;
     }
@@ -183,10 +180,11 @@ public static class SharedMethods
             DirectoryInfo dirInfo = new DirectoryInfo(folderName);
             DirectorySecurity dirSecurity = dirInfo.GetAccessControl();
 
-            var user = WindowsIdentity.GetCurrent();
-            var userSID = user.User;
-            var userGroupSIDs = user.Groups;
+            using WindowsIdentity user = WindowsIdentity.GetCurrent();
+            SecurityIdentifier? userSID = user.User;
+            if (userSID is null) return false;
 
+            IdentityReferenceCollection? userGroupSIDs = user.Groups;
             var rules = dirSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
 
             bool writeAllowed = false;
@@ -194,11 +192,12 @@ public static class SharedMethods
 
             foreach (FileSystemAccessRule rule in rules)
             {
-                var fileSystemRights = rule.FileSystemRights;
-
                 if (!rule.FileSystemRights.HasFlag(FileSystemRights.Write)) continue;
                 if (rule.IdentityReference is not SecurityIdentifier ruleSID) continue;
-                if (!ruleSID.Equals(userSID) && !userGroupSIDs.Contains(ruleSID)) continue;
+
+                bool belongsToUser = ruleSID.Equals(userSID);
+                bool belongsToGroup = userGroupSIDs?.Contains(ruleSID) == true;
+                if (!belongsToUser && !belongsToGroup) continue;
 
                 if (rule.AccessControlType == AccessControlType.Deny)
                 {
@@ -219,6 +218,81 @@ public static class SharedMethods
     {
         var attributes = File.GetAttributes(folderPath);
         return attributes.HasFlag(FileAttributes.Compressed);
+    }
+
+    public readonly record struct FolderCompressionFlagClearResult(bool Succeeded, string ErrorMessage);
+
+    public static async Task<FolderCompressionFlagClearResult> ClearFolderLZNT1CompressionFlagAsync(string folderPath)
+    {
+        if (!Directory.Exists(folderPath))
+            return new FolderCompressionFlagClearResult(false, "Directory does not exist.");
+
+        try
+        {
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = Path.Combine(Environment.SystemDirectory, "compact.exe"),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            // Intentionally omit /S. This changes only the selected directory's
+            // inheritance flag and does not alter any existing files or subfolders.
+            startInfo.ArgumentList.Add("/U");
+            startInfo.ArgumentList.Add("/Q");
+            startInfo.ArgumentList.Add(folderPath);
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Windows could not start compact.exe.");
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            string output = await outputTask.ConfigureAwait(false);
+            string error = await errorTask.ConfigureAwait(false);
+
+            if (process.ExitCode != 0)
+            {
+                string details = string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim();
+                if (string.IsNullOrWhiteSpace(details))
+                    details = $"compact.exe exited with code {process.ExitCode}.";
+
+                return new FolderCompressionFlagClearResult(false, details);
+            }
+
+            if (IsFolderLZNT1Compressed(folderPath))
+                return new FolderCompressionFlagClearResult(false, "Windows left the folder compression flag enabled.");
+
+            return new FolderCompressionFlagClearResult(true, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            return new FolderCompressionFlagClearResult(false, ex.Message);
+        }
+    }
+
+    public static bool IsDirectStorageGameFolder(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath)) return false;
+
+        // List of possible DirectStorage DLL relative paths from https://github.com/SteamDatabase/FileDetectionRuleSets/blob/main/tests/types/SDK.DirectStorage.txt
+        string[] directStoragePaths = new[]
+        {
+            "dstorage.dll",
+            Path.Combine("Bin64", "dstorage.dll"),
+            Path.Combine("Engine", "Binaries", "ThirdParty", "Windows", "DirectStorage", "x64", "dstorage.dll")
+        };
+
+        foreach (var relativePath in directStoragePaths)
+        {
+            string fullPath = Path.Combine(folderPath, relativePath);
+            if (File.Exists(fullPath)) return true;
+        }
+
+        return false;
     }
 
 

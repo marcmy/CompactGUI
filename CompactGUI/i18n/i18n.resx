@@ -199,7 +199,7 @@
     <value>edit</value>
   </data>
   <data name="SetFiletypeManagement_OnlineSkiplistAgression" xml:space="preserve">
-    <value>Aggression of online skiplist</value>
+    <value>Agression of online skiplist</value>
   </data>
   <data name="SetFiletypeManagement_OnlineSkiplistAgressionTip" xml:space="preserve">
     <value>For Steam games only.
@@ -298,12 +298,6 @@ skips files based on compression estimate</value>
   <data name="CompressionConfiguration_WatchFolderChanges" xml:space="preserve">
     <value>Watch folder for changes</value>
   </data>
-  <data name="CompressionConfiguration_EditSkipList" xml:space="preserve">
-    <value>Edit skip list for this folder</value>
-  </data>
-  <data name="CompressionConfiguration_SkipListEnabled" xml:space="preserve">
-    <value>Use skip list</value>
-  </data>
   <data name="CompressionConfiguration_ApplyAll" xml:space="preserve">
     <value>Apply to all</value>
   </data>
@@ -384,45 +378,6 @@ skips files based on compression estimate</value>
   </data>
   <data name="SetFiletypeManagement_LocalSkipFiletypesEdit" xml:space="preserve">
     <value>edit skipped filetypes</value>
-  </data>
-  <data name="SkipListFlyout_ExtensionsInFolder" xml:space="preserve">
-    <value>Extensions in this folder</value>
-  </data>
-  <data name="SkipListFlyout_IncludeGlobal" xml:space="preserve">
-    <value>Include global skipped file types</value>
-  </data>
-  <data name="SkipListFlyout_IncludeWiki" xml:space="preserve">
-    <value>Include smart skipped file types</value>
-  </data>
-  <data name="SkipListFlyout_IncludeWikiTip" xml:space="preserve">
-    <value>For Steam Games, this uses the database to determine types to skip. For non-Steam folders this is based on the smart analyser.</value>
-  </data>
-  <data name="SkipListSummary_Off" xml:space="preserve">
-    <value>Off</value>
-  </data>
-  <data name="SkipListSummary_GlobalOnly" xml:space="preserve">
-    <value>Global — {0} files</value>
-  </data>
-  <data name="SkipListSummary_WikiOnly" xml:space="preserve">
-    <value>DB — {0} files</value>
-  </data>
-  <data name="SkipListSummary_GlobalAndWiki" xml:space="preserve">
-    <value>Global + DB — {0} files</value>
-  </data>
-  <data name="SkipListSummary_Custom" xml:space="preserve">
-    <value>Custom list — {0} entries</value>
-  </data>
-  <data name="SkipListSummary_NotConfigured" xml:space="preserve">
-    <value>not configured</value>
-  </data>
-  <data name="SkipListSummary_GlobalPill" xml:space="preserve">
-    <value>Global: {0} skipped</value>
-  </data>
-  <data name="SkipListSummary_SmartPill" xml:space="preserve">
-    <value>Smart: {0} skipped</value>
-  </data>
-  <data name="SkipListSummary_CustomPill" xml:space="preserve">
-    <value>Custom: {0} entries</value>
   </data>
   <data name="UniSave" xml:space="preserve">
     <value>Save</value>
@@ -622,5 +577,101 @@ Are you sure you want to exit?</value>
   </data>
   <data name="CompressionDB_DatabaseResults_Mode" xml:space="preserve">
     <value>Mode</value>
+  </data>
+  <data name="CompressionStop_Title" xml:space="preserve">
+    <value>Stop compression?</value>
+  </data>
+  <data name="CompressionStop_Message" xml:space="preserve">
+    <value>Choose what CompactGUI should do with the work already completed for {0}.&#10;&#10;Save progress keeps the files and remembers these settings for later.&#10;Undo progress restores only files changed during this run.&#10;Leave as is keeps the files but does not save a resume session.</value>
+  </data>
+  <data name="CompressionStop_SaveProgress" xml:space="preserve">
+    <value>Save progress</value>
+  </data>
+  <data name="CompressionStop_UndoProgress" xml:space="preserve">
+    <value>Undo progress</value>
+  </data>
+  <data name="CompressionStop_LeaveAsIs" xml:space="preserve">
+    <value>Leave as is</value>
+  </data>
+  <data name="CompressionResume_Title" xml:space="preserve">
+    <value>Resume saved compression?</value>
+  </data>
+  <data name="CompressionResume_Message" xml:space="preserve">
+    <value>CompactGUI saved a {1} compression session for {0}. Resume the remaining files now?</value>
+  </data>
+  <data name="CompressionResume_CheckpointMessage" xml:space="preserve">
+    <value>CompactGUI saved a {1} compression checkpoint for {0} after {2:N0} of {3:N0} files ({4}%). Resume the remaining files now?</value>
+  </data>
+  <data name="CompressionResume_LegacyMessage" xml:space="preserve">
+    <value>CompactGUI saved a {1} session for {0} with an older build. Files already using the target mode will still be skipped, but the old progress counter cannot be restored and will restart from zero. Continue?</value>
+  </data>
+  <data name="CompressionResume_Resume" xml:space="preserve">
+    <value>Resume</value>
+  </data>
+  <data name="CompressionResume_Discard" xml:space="preserve">
+    <value>Discard saved progress</value>
+  </data>
+  <data name="Status_Undoing" xml:space="preserve">
+    <value>Undoing compression</value>
+  </data>
+  <data name="CompressionDetails_Title" xml:space="preserve">
+    <value>Details</value>
+  </data>
+  <data name="CompressionDetails_ProcessedFiles" xml:space="preserve">
+    <value>Files processed</value>
+  </data>
+  <data name="CompressionDetails_ProcessedData" xml:space="preserve">
+    <value>Data processed</value>
+  </data>
+  <data name="CompressionDetails_FailedFiles" xml:space="preserve">
+    <value>Failed</value>
+  </data>
+  <data name="CompressionDetails_AtomicHint" xml:space="preserve">
+    <value>Windows reports each file when it starts and finishes, so an active file uses a moving indicator instead of an estimated percentage.</value>
+  </data>
+  <data name="CompressionDetails_Status" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="CompressionDetails_File" xml:space="preserve">
+    <value>File</value>
+  </data>
+  <data name="CompressionDetails_Reason" xml:space="preserve">
+    <value>Failure reason</value>
+  </data>
+  <data name="CompressionDetails_Size" xml:space="preserve">
+    <value>Size</value>
+  </data>
+  <data name="CompressionDetails_OnDisk" xml:space="preserve">
+    <value>On disk</value>
+  </data>
+  <data name="CompressionDetails_Progress" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="CompressionDetails_Status_Queued" xml:space="preserve">
+    <value>Queued</value>
+  </data>
+  <data name="CompressionDetails_Status_Processing" xml:space="preserve">
+    <value>Working</value>
+  </data>
+  <data name="CompressionDetails_Status_Completed" xml:space="preserve">
+    <value>Complete</value>
+  </data>
+  <data name="CompressionDetails_Status_Failed" xml:space="preserve">
+    <value>Failed</value>
+  </data>
+  <data name="FolderCompression_Title" xml:space="preserve">
+    <value>Windows compression detected</value>
+  </data>
+  <data name="FolderCompression_Message" xml:space="preserve">
+    <value>{0} is marked so new files inherit Windows NTFS compression. CompactGUI cannot safely combine that with its WOF compression.&#10;&#10;Clear only this folder's compression flag and retry? Existing files and subfolders will not be changed.</value>
+  </data>
+  <data name="FolderCompression_ClearAndRetry" xml:space="preserve">
+    <value>Clear flag and retry</value>
+  </data>
+  <data name="FolderCompression_ClearFailed" xml:space="preserve">
+    <value>Could not clear Windows compression</value>
+  </data>
+  <data name="FolderCompression_ClearFailedMessage" xml:space="preserve">
+    <value>CompactGUI could not clear the compression flag from {0}.&#10;&#10;{1}</value>
   </data>
 </root>

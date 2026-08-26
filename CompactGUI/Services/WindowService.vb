@@ -3,6 +3,10 @@
     Sub MinimizeMainWindow()
     Sub HideMainWindow()
     Function ShowMessageBox(title As String, content As String) As Task(Of Boolean)
+    Function ShowCompressionStopDialog(folderName As String) As Task(Of CompressionStopChoice)
+    Function ShowResumeCompressionDialog(session As SavedCompressionSession) As Task(Of CompressionResumeChoice)
+    Function ShowFolderCompressionFlagDialog(folderName As String) As Task(Of Boolean)
+    Function ShowFolderCompressionFlagClearErrorDialog(folderName As String, errorMessage As String) As Task
 End Interface
 
 
@@ -38,5 +42,118 @@ Public Class WindowService
            }
         Dim result = Await msgBox.ShowDialogAsync()
         Return result = Wpf.Ui.Controls.MessageBoxResult.Primary
+    End Function
+
+    Public Async Function ShowCompressionStopDialog(folderName As String) As Task(Of CompressionStopChoice) Implements IWindowService.ShowCompressionStopDialog
+        Dim mainWindow = Application.GetService(Of MainWindow)()
+        Dim cancelRequested = False
+        Dim dialog As Wpf.Ui.Controls.ContentDialog = Nothing
+
+        Dim titleGrid As New Grid With {.Width = 560}
+        titleGrid.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+        titleGrid.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+
+        Dim titleText As New TextBlock With {
+            .Text = LanguageHelper.GetString("CompressionStop_Title"),
+            .VerticalAlignment = VerticalAlignment.Center
+        }
+        titleGrid.Children.Add(titleText)
+
+        Dim cancelButton As New Wpf.Ui.Controls.Button With {
+            .Content = "×",
+            .Width = 32,
+            .Height = 32,
+            .Margin = New Thickness(12, -6, -6, -6),
+            .ToolTip = LanguageHelper.GetString("UniCancel")
+        }
+        Grid.SetColumn(cancelButton, 1)
+        titleGrid.Children.Add(cancelButton)
+
+        dialog = New Wpf.Ui.Controls.ContentDialog(mainWindow.ContentDialogHost) With {
+            .Title = titleGrid,
+            .Content = String.Format(LanguageHelper.GetString("CompressionStop_Message"), folderName),
+            .DialogWidth = 640,
+            .PrimaryButtonText = LanguageHelper.GetString("CompressionStop_SaveProgress"),
+            .CloseButtonText = LanguageHelper.GetString("CompressionStop_LeaveAsIs")
+        }
+
+        AddHandler cancelButton.Click,
+            Sub()
+                cancelRequested = True
+                dialog.Hide(Wpf.Ui.Controls.ContentDialogResult.None)
+            End Sub
+
+        Select Case Await dialog.ShowAsync()
+            Case Wpf.Ui.Controls.ContentDialogResult.Primary
+                Return CompressionStopChoice.SaveProgress
+            Case Else
+                Return If(cancelRequested, CompressionStopChoice.Cancel, CompressionStopChoice.LeaveAsIs)
+        End Select
+    End Function
+
+    Public Async Function ShowResumeCompressionDialog(session As SavedCompressionSession) As Task(Of CompressionResumeChoice) Implements IWindowService.ShowResumeCompressionDialog
+        Dim message As String
+        If session.HasProgressCheckpoint Then
+            Dim percentage = If(
+                session.TotalBytes > 0,
+                Math.Clamp(CInt(session.ProcessedBytes / CDbl(session.TotalBytes) * 100), 0, 100),
+                0)
+            message = String.Format(
+                LanguageHelper.GetString("CompressionResume_CheckpointMessage"),
+                session.FolderPath,
+                session.SelectedCompressionMode,
+                session.ProcessedFiles,
+                session.TotalFiles,
+                percentage)
+        Else
+            message = String.Format(
+                LanguageHelper.GetString("CompressionResume_LegacyMessage"),
+                session.FolderPath,
+                session.SelectedCompressionMode)
+        End If
+
+        Dim msgBox = New Wpf.Ui.Controls.MessageBox With {
+            .Title = LanguageHelper.GetString("CompressionResume_Title"),
+            .Content = message,
+            .IsPrimaryButtonEnabled = True,
+            .IsSecondaryButtonEnabled = True,
+            .PrimaryButtonText = LanguageHelper.GetString("CompressionResume_Resume"),
+            .SecondaryButtonText = LanguageHelper.GetString("CompressionResume_Discard"),
+            .CloseButtonText = LanguageHelper.GetString("UniCancel")
+        }
+
+        Select Case Await msgBox.ShowDialogAsync()
+            Case Wpf.Ui.Controls.MessageBoxResult.Primary
+                Return CompressionResumeChoice.ResumeProgress
+            Case Wpf.Ui.Controls.MessageBoxResult.Secondary
+                Return CompressionResumeChoice.DiscardSavedProgress
+            Case Else
+                Return CompressionResumeChoice.Cancel
+        End Select
+    End Function
+
+    Public Async Function ShowFolderCompressionFlagDialog(folderName As String) As Task(Of Boolean) Implements IWindowService.ShowFolderCompressionFlagDialog
+        Dim mainWindow = Application.GetService(Of MainWindow)()
+        Dim dialog = New Wpf.Ui.Controls.ContentDialog(mainWindow.ContentDialogHost) With {
+            .Title = LanguageHelper.GetString("FolderCompression_Title"),
+            .Content = String.Format(LanguageHelper.GetString("FolderCompression_Message"), folderName),
+            .DialogWidth = 640,
+            .PrimaryButtonText = LanguageHelper.GetString("FolderCompression_ClearAndRetry"),
+            .CloseButtonText = LanguageHelper.GetString("UniCancel")
+        }
+
+        Return Await dialog.ShowAsync() = Wpf.Ui.Controls.ContentDialogResult.Primary
+    End Function
+
+    Public Async Function ShowFolderCompressionFlagClearErrorDialog(folderName As String, errorMessage As String) As Task Implements IWindowService.ShowFolderCompressionFlagClearErrorDialog
+        Dim mainWindow = Application.GetService(Of MainWindow)()
+        Dim dialog = New Wpf.Ui.Controls.ContentDialog(mainWindow.ContentDialogHost) With {
+            .Title = LanguageHelper.GetString("FolderCompression_ClearFailed"),
+            .Content = String.Format(LanguageHelper.GetString("FolderCompression_ClearFailedMessage"), folderName, errorMessage),
+            .DialogWidth = 640,
+            .CloseButtonText = LanguageHelper.GetString("UniOK")
+        }
+
+        Await dialog.ShowAsync()
     End Function
 End Class

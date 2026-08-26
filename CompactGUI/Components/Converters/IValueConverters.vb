@@ -17,6 +17,8 @@ End Class
 Public Class BytesToReadableConverter : Implements IValueConverter
     Public Function Convert(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.Convert
 
+        If value Is Nothing Then Return "—"
+
         Dim suf As String() = {
             LanguageHelper.GetString("SizeUnit_B"),
             LanguageHelper.GetString("SizeUnit_KB"),
@@ -281,7 +283,7 @@ Public Class FolderStatusToColorConverter : Implements IValueConverter
         Select Case status
             Case ActionState.Idle
                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#92e7f1"))
-            Case ActionState.Analysing, ActionState.Working, ActionState.Paused
+            Case ActionState.Analysing, ActionState.Working, ActionState.Paused, ActionState.Undoing
                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#F1CE92"))
             Case ActionState.Results
                 Return New SolidColorBrush(ColorConverter.ConvertFromString("#92F1AB"))
@@ -305,6 +307,8 @@ Public Class FolderStatusToStringConverter : Implements IValueConverter
                 Return LanguageHelper.GetString("Status_Analysing")
             Case ActionState.Working, ActionState.Paused
                 Return LanguageHelper.GetString("Status_Working")
+            Case ActionState.Undoing
+                Return LanguageHelper.GetString("Status_Undoing")
             Case ActionState.Results
                 Return LanguageHelper.GetString("Status_Compressed")
             Case Else
@@ -406,7 +410,7 @@ Public Class FolderActionStateWorkingToVisibilityConverter
     Public Function Convert(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.Convert
         Dim status = CType(value, ActionState)
         Select Case status
-            Case ActionState.Working
+            Case ActionState.Working, ActionState.Undoing
                 Return Visibility.Visible
             Case Else
                 Return Visibility.Collapsed
@@ -492,5 +496,53 @@ Public Class EnumToIntConverter
     Public Function ConvertBack(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.ConvertBack
         If targetType Is Nothing OrElse Not targetType.IsEnum OrElse value Is Nothing Then Return Binding.DoNothing
         Return [Enum].ToObject(targetType, value)
+    End Function
+End Class
+
+Public Class CompressionFileStateToStringConverter
+    Implements IValueConverter
+
+    Public Function Convert(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.Convert
+        If value Is Nothing Then Return String.Empty
+
+        Select Case CType(value, Core.CompressionFileState)
+            Case Core.CompressionFileState.Queued
+                Return LanguageHelper.GetString("CompressionDetails_Status_Queued")
+            Case Core.CompressionFileState.Processing
+                Return LanguageHelper.GetString("CompressionDetails_Status_Processing")
+            Case Core.CompressionFileState.Completed
+                Return LanguageHelper.GetString("CompressionDetails_Status_Completed")
+            Case Core.CompressionFileState.Failed
+                Return LanguageHelper.GetString("CompressionDetails_Status_Failed")
+            Case Else
+                Return String.Empty
+        End Select
+    End Function
+
+    Public Function ConvertBack(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.ConvertBack
+        Throw New NotImplementedException()
+    End Function
+End Class
+
+Public Class CompressionFileStateToBrushConverter
+    Implements IValueConverter
+
+    Public Function Convert(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.Convert
+        If value Is Nothing Then Return New SolidColorBrush(ColorConverter.ConvertFromString("#80BAC2CA"))
+
+        Select Case CType(value, Core.CompressionFileState)
+            Case Core.CompressionFileState.Processing
+                Return New SolidColorBrush(ColorConverter.ConvertFromString("#F1CE92"))
+            Case Core.CompressionFileState.Completed
+                Return New SolidColorBrush(ColorConverter.ConvertFromString("#92F1AB"))
+            Case Core.CompressionFileState.Failed
+                Return New SolidColorBrush(ColorConverter.ConvertFromString("#F19292"))
+            Case Else
+                Return New SolidColorBrush(ColorConverter.ConvertFromString("#80BAC2CA"))
+        End Select
+    End Function
+
+    Public Function ConvertBack(value As Object, targetType As Type, parameter As Object, culture As CultureInfo) As Object Implements IValueConverter.ConvertBack
+        Throw New NotImplementedException()
     End Function
 End Class

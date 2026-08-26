@@ -156,17 +156,6 @@
 
                 </Grid>
                 <VisualStateManager.VisualStateGroups>
-                    <VisualStateGroup x:Name="CheckStates">
-                        <VisualState x:Name="Checked">
-                            <Storyboard>
-                                <ColorAnimation Storyboard.TargetName="CheckMark"
-                                                Storyboard.TargetProperty="(BorderBrush).(SolidColorBrush.Color)" To="#92F1AB"
-                                                Duration="0:0:0.4" />
-                            </Storyboard>
-                        </VisualState>
-                        <VisualState x:Name="Unchecked" />
-                        <VisualState x:Name="Indeterminate" />
-                    </VisualStateGroup>
                     <VisualStateGroup x:Name="HoverStates">
                         <VisualState x:Name="MouseOver">
                             <Storyboard>
@@ -188,8 +177,6 @@
                                 <DoubleAnimation Storyboard.TargetName="Progress_Area"
                                                  Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="0.3"
                                                  Duration="0:0:0.2" />
-
-
 
                                 <DoubleAnimation Storyboard.TargetName="BytesAfter_Text"
                                                  Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)" To="20"
@@ -240,7 +227,6 @@
                                                  Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1"
                                                  Duration="0:0:0.2" />
 
-
                                 <DoubleAnimation Storyboard.TargetName="BytesAfter_Text"
                                                  Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)" To="0"
                                                  Duration="0:0:0.2">
@@ -276,6 +262,16 @@
                     </VisualStateGroup>
                 </VisualStateManager.VisualStateGroups>
             </ui:Card>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter TargetName="CheckMark" Property="BorderBrush" Value="#4CA5FF" />
+                    <Setter TargetName="CheckMark" Property="BorderThickness" Value="2" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="False">
+                    <Setter TargetName="CheckMark" Property="BorderBrush" Value="#38FFFFFF" />
+                    <Setter TargetName="CheckMark" Property="BorderThickness" Value="1" />
+                </Trigger>
+            </ControlTemplate.Triggers>
         </ControlTemplate>
     </RadioButton.Template>
 </RadioButton>

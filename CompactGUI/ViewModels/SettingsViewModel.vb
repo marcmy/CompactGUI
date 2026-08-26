@@ -18,6 +18,9 @@ Imports Microsoft.Extensions.Logging
 
 Public NotInheritable Class SettingsViewModel : Inherits ObservableObject
 
+    Private Const StartupRegistryPath As String = "Software\Microsoft\Windows\CurrentVersion\Run"
+    Private Const StartupRegistryValueName As String = "CompactGUI"
+
     Private ReadOnly _logger As ILogger(Of Settings)
     Private ReadOnly _settingsService As ISettingsService
 
@@ -37,6 +40,7 @@ Public NotInheritable Class SettingsViewModel : Inherits ObservableObject
         Await SetEnv()
         Await ApplyContextIntegrationAsync()
         ApplyStartMenuIntegration()
+        ApplyStartupIntegration()
 
     End Function
 
@@ -55,6 +59,10 @@ Public NotInheritable Class SettingsViewModel : Inherits ObservableObject
 
         If e.PropertyName = NameOf(Settings.IsStartMenuEnabled) Then
             ApplyStartMenuIntegration()
+        End If
+
+        If e.PropertyName = NameOf(Settings.StartWithWindows) Then
+            ApplyStartupIntegration()
         End If
 
         If e.PropertyName = NameOf(Settings.ScheduledBackgroundHour) OrElse e.PropertyName = NameOf(Settings.ScheduledBackgroundMinute) Then
@@ -78,6 +86,34 @@ Public NotInheritable Class SettingsViewModel : Inherits ObservableObject
         Else
             DeleteStartMenuShortcut()
         End If
+    End Sub
+
+    Public Sub ApplyStartupIntegration()
+        Try
+            If _settingsService.AppSettings.StartWithWindows Then
+                Dim exePath = Environment.ProcessPath
+                If String.IsNullOrWhiteSpace(exePath) Then
+                    _logger.LogWarning("Could not determine executable path for Windows startup registration")
+                    Return
+                End If
+
+                Using runKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(StartupRegistryPath, True)
+                    If runKey Is Nothing Then
+                        _logger.LogWarning("Could not open Windows startup registry key")
+                        Return
+                    End If
+
+                    Dim startupCommand = ChrW(34) & exePath & ChrW(34) & " -tray"
+                    runKey.SetValue(StartupRegistryValueName, startupCommand, Microsoft.Win32.RegistryValueKind.String)
+                End Using
+            Else
+                Using runKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(StartupRegistryPath, writable:=True)
+                    runKey?.DeleteValue(StartupRegistryValueName, False)
+                End Using
+            End If
+        Catch ex As Exception
+            _logger.LogError(ex, "Failed to update Windows startup registration")
+        End Try
     End Sub
 
 
