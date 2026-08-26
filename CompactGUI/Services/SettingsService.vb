@@ -12,6 +12,10 @@ Public Class SettingsService : Implements ISettingsService
     Public ReadOnly Property SettingsVersion As Decimal Implements ISettingsService.SettingsVersion
     Public Property AppSettings As Settings Implements ISettingsService.AppSettings
 
+    Public Sub New()
+        Me.New(String.Equals(New IO.DirectoryInfo(AppContext.BaseDirectory).Name, "compactgui", StringComparison.OrdinalIgnoreCase))
+    End Sub
+
     Public Sub New(truePortable As Boolean)
 
         If truePortable Then
