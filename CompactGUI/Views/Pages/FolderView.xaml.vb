@@ -1,4 +1,5 @@
 ﻿Imports System.Windows.Controls.Primitives
+Imports System.Windows.Data
 Imports System.Windows.Media
 Imports System.Windows.Shapes
 Imports System.Windows.Threading
@@ -12,6 +13,7 @@ Public Class FolderView
     Private _compressionDetailsGrid As DataGrid
     Private _scrollThumb As Thumb
     Private _stopButton As Wpf.Ui.Controls.Button
+    Private _directStorageBadge As Border
     Private _isAutoFollowing As Boolean
     Private _isScrollThumbDragging As Boolean
     Private _suppressAutoFollowUntil As DateTime = DateTime.MinValue
@@ -24,6 +26,7 @@ Public Class FolderView
     Private Sub FolderView_LayoutUpdated(sender As Object, e As EventArgs)
         ConfigureCompressionDetailsGrid()
         ConfigureStopButton()
+        ConfigureDirectStorageBadge()
     End Sub
 
     Private Sub ConfigureCompressionDetailsGrid()
@@ -144,6 +147,54 @@ Public Class FolderView
 
         _stopButton = stopButton
         _stopButton.Content = CreateStopIcon()
+    End Sub
+
+    Private Sub ConfigureDirectStorageBadge()
+        If _directStorageBadge IsNot Nothing AndAlso VisualTreeHelper.GetParent(_directStorageBadge) IsNot Nothing Then Return
+
+        Dim headerPanel = FindVisualDescendant(Of StackPanel)(
+            Me,
+            Function(panel)
+                If panel.Orientation <> Orientation.Horizontal Then Return False
+
+                For Each child As UIElement In panel.Children
+                    Dim title = TryCast(child, TextBlock)
+                    If title IsNot Nothing AndAlso Math.Abs(title.FontSize - 30) < 0.1 Then Return True
+                Next
+
+                Return False
+            End Function)
+
+        If headerPanel Is Nothing Then Return
+
+        Dim badge As New Border With {
+            .Height = 25,
+            .Margin = New Thickness(0, 6, 0, 6),
+            .Padding = New Thickness(7, 2, 7, 2),
+            .Background = New SolidColorBrush(Color.FromArgb(&H80, &HFF, &HAA, &H0)),
+            .CornerRadius = New CornerRadius(4),
+            .ToolTip = LanguageHelper.GetString("SnackBar_DirectStorageTechnology")
+        }
+
+        Dim visibilityConverter = TryCast(Application.Current.TryFindResource("BoolToVisConverter"), IValueConverter)
+        badge.SetBinding(
+            UIElement.VisibilityProperty,
+            New Binding("Folder.IsDirectStorage") With {
+                .Mode = BindingMode.OneWay,
+                .Converter = visibilityConverter
+            })
+
+        Dim label As New TextBlock With {
+            .VerticalAlignment = VerticalAlignment.Center,
+            .FontSize = 13,
+            .FontWeight = FontWeights.SemiBold,
+            .Foreground = Brushes.White,
+            .Text = "⚠ Direct Storage"
+        }
+        badge.Child = label
+
+        headerPanel.Children.Add(badge)
+        _directStorageBadge = badge
     End Sub
 
     Private Shared Function CreateStopIcon() As FrameworkElement
