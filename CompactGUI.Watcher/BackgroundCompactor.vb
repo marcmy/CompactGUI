@@ -92,7 +92,7 @@ Public Class BackgroundCompactor
 
                 Try
                     WatcherLog.CompactingFolder(_logger, folder.DisplayName)
-                    Dim folderSkipList = If(folder.SkipList Is Nothing, Array.Empty(Of String), folder.SkipList.ToArray())
+                    Dim folderSkipList As String() = If(folder.SkipList Is Nothing, Nothing, folder.SkipList.ToArray())
                     compactor = CreateCompactor(folder.Folder, folder.CompressionLevel, folderSkipList)
                     If compactor Is Nothing Then Return False
 
