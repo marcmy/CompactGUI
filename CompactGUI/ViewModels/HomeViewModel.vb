@@ -182,6 +182,7 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
                     If watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
                         newFolder.CompressionOptions.SelectedCompressionMode = Core.WOFHelper.CompressionModeFromWOFMode(watchedFolder.CompressionLevel)
                     End If
+                    newFolder.CompressionOptions.SkipListEnabled = watchedFolder.SkipListEnabled
                     If watchedFolder.SkipList IsNot Nothing Then
                         newFolder.CompressionOptions.SkipList = New List(Of String)(watchedFolder.SkipList)
                     End If
@@ -417,18 +418,26 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
 
         Dim skipList As New List(Of String)
         If folder.CompressionOptions.SkipListEnabled Then
-            If folder.CompressionOptions.SkipList?.Count > 0 Then skipList.AddRange(folder.CompressionOptions.SkipList)
-            If folder.CompressionOptions.SkipUserSubmittedFiletypes AndAlso folder.WikiPoorlyCompressedFiles?.Count > 0 Then
-                skipList.AddRange(folder.WikiPoorlyCompressedFiles)
+            If folder.CompressionOptions.SkipList IsNot Nothing Then
+                skipList.AddRange(folder.CompressionOptions.SkipList)
+            Else
+                If folder.CompressionOptions.SkipPoorlyCompressedFileTypes AndAlso _settingsService.AppSettings.NonCompressableList?.Count > 0 Then
+                    skipList.AddRange(_settingsService.AppSettings.NonCompressableList)
+                End If
+                If folder.CompressionOptions.SkipUserSubmittedFiletypes AndAlso folder.WikiPoorlyCompressedFiles?.Count > 0 Then
+                    skipList.AddRange(folder.WikiPoorlyCompressedFiles)
+                End If
             End If
         End If
         newWatched.SkipList = skipList.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+        newWatched.SkipListEnabled = folder.CompressionOptions.SkipListEnabled
 
         ' Marc's watcher update path intentionally preserves existing objects so offline
         ' folders stay tracked. Update its per-folder exclusions explicitly before the
         ' normal metadata merge, rather than replacing the watched object.
         If existingWatched IsNot Nothing Then
             existingWatched.SkipList = New List(Of String)(newWatched.SkipList)
+            existingWatched.SkipListEnabled = newWatched.SkipListEnabled
         End If
 
         _watcher.AddOrUpdateWatched(newWatched)
