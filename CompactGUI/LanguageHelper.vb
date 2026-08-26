@@ -20,6 +20,28 @@ Public Class LanguageHelper
     Private Shared resourceManager As ResourceManager = i18n.i18n.ResourceManager
     Private Shared currentCulture As CultureInfo = Nothing
 
+    ' The fork carries additional neutral resources for its custom compression UI,
+    ' while upstream added these keys later. Keep the fork's generated resource
+    ' surface intact and provide neutral English fallbacks for the upstream keys.
+    ' Satellite resources still win whenever they define a localized value.
+    Private Shared ReadOnly UpstreamNeutralFallbacks As New Dictionary(Of String, String)(StringComparer.Ordinal) From {
+        {"CompressionConfiguration_EditSkipList", "Edit skip list for this folder"},
+        {"CompressionConfiguration_SkipListEnabled", "Use skip list"},
+        {"SkipListFlyout_ExtensionsInFolder", "Extensions in this folder"},
+        {"SkipListFlyout_IncludeGlobal", "Include global skipped file types"},
+        {"SkipListFlyout_IncludeWiki", "Include smart skipped file types"},
+        {"SkipListFlyout_IncludeWikiTip", "For Steam Games, this uses the database to determine types to skip. For non-Steam folders this is based on the smart analyser."},
+        {"SkipListSummary_Off", "Off"},
+        {"SkipListSummary_GlobalOnly", "Global — {0} files"},
+        {"SkipListSummary_WikiOnly", "DB — {0} files"},
+        {"SkipListSummary_GlobalAndWiki", "Global + DB — {0} files"},
+        {"SkipListSummary_Custom", "Custom list — {0} entries"},
+        {"SkipListSummary_NotConfigured", "not configured"},
+        {"SkipListSummary_GlobalPill", "Global: {0} skipped"},
+        {"SkipListSummary_SmartPill", "Smart: {0} skipped"},
+        {"SkipListSummary_CustomPill", "Custom: {0} entries"}
+    }
+
     Private Shared _applicationSettings As Settings
 
     Public Shared Event LanguageChanged As EventHandler
@@ -44,6 +66,10 @@ Public Class LanguageHelper
         Try
             Dim cultureToUse = If(currentCulture, Thread.CurrentThread.CurrentUICulture)
             Dim rawValue As String = resourceManager.GetString(key, cultureToUse)
+
+            If String.IsNullOrEmpty(rawValue) Then
+                UpstreamNeutralFallbacks.TryGetValue(key, rawValue)
+            End If
 
             If String.IsNullOrEmpty(rawValue) Then
                 Return key
