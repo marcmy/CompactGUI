@@ -57,4 +57,29 @@ Public Class PendingCompression
         _settingsService.AppSettings.WatchFolderForChanges = False
         _settingsService.SaveSettings()
     End Sub
+
+    Private Sub UiEditSkipList_Click(sender As Object, e As RoutedEventArgs)
+        Dim folderViewModel = TryCast(DataContext, FolderViewModel)
+        If folderViewModel Is Nothing Then Return
+
+        Dim flyout As New Settings_skiplistflyout(folderViewModel.Folder)
+        flyout.Owner = Window.GetWindow(Me)
+        flyout.ShowDialog()
+
+        folderViewModel.Folder.NotifyPropertyChanged(NameOf(CompressableFolder.SkippedFileCount))
+    End Sub
+
+    Private Sub UiChkSkipListEnabled_Checked(sender As Object, e As RoutedEventArgs)
+        NotifySkippedFileCount()
+    End Sub
+
+    Private Sub UiChkSkipListEnabled_Unchecked(sender As Object, e As RoutedEventArgs)
+        NotifySkippedFileCount()
+    End Sub
+
+    Private Sub NotifySkippedFileCount()
+        Dim folderViewModel = TryCast(DataContext, FolderViewModel)
+        If folderViewModel Is Nothing Then Return
+        folderViewModel.Folder.NotifyPropertyChanged(NameOf(CompressableFolder.SkippedFileCount))
+    End Sub
 End Class
