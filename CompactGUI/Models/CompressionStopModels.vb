@@ -26,6 +26,8 @@ Public NotInheritable Class SavedCompressionSession
     Public Property SelectedCompressionMode As Core.CompressionMode
     Public Property SkipPoorlyCompressedFileTypes As Boolean
     Public Property SkipUserSubmittedFiletypes As Boolean
+    Public Property SkipList As List(Of String)
+    Public Property SkipListEnabled As Boolean = True
     Public Property WatchFolderForChanges As Boolean
     Public Property ResumeDataVersion As Integer
     Public Property TotalFiles As Integer
