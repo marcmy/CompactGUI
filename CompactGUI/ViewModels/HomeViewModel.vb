@@ -178,8 +178,13 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
             If _watcher.WatchedFolders.Any(Function(watched) watched.Folder = newFolder.FolderName) Then
                 Dim watchedFolder = _watcher.WatchedFolders.First(Function(watched) watched.Folder = newFolder.FolderName)
                 newFolder.CompressionOptions.WatchFolderForChanges = True
-                If (Not resumeChoice.HasValue OrElse resumeChoice.Value <> CompressionResumeChoice.ResumeProgress) AndAlso watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
-                    newFolder.CompressionOptions.SelectedCompressionMode = Core.WOFHelper.CompressionModeFromWOFMode(watchedFolder.CompressionLevel)
+                If Not resumeChoice.HasValue OrElse resumeChoice.Value <> CompressionResumeChoice.ResumeProgress Then
+                    If watchedFolder.CompressionLevel <> Core.WOFCompressionAlgorithm.NO_COMPRESSION Then
+                        newFolder.CompressionOptions.SelectedCompressionMode = Core.WOFHelper.CompressionModeFromWOFMode(watchedFolder.CompressionLevel)
+                    End If
+                    If watchedFolder.SkipList IsNot Nothing Then
+                        newFolder.CompressionOptions.SkipList = New List(Of String)(watchedFolder.SkipList)
+                    End If
                 End If
             End If
 
@@ -196,6 +201,8 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
         folder.CompressionOptions.SelectedCompressionMode = session.SelectedCompressionMode
         folder.CompressionOptions.SkipPoorlyCompressedFileTypes = session.SkipPoorlyCompressedFileTypes
         folder.CompressionOptions.SkipUserSubmittedFiletypes = session.SkipUserSubmittedFiletypes
+        folder.CompressionOptions.SkipList = If(session.SkipList Is Nothing, Nothing, New List(Of String)(session.SkipList))
+        folder.CompressionOptions.SkipListEnabled = session.SkipListEnabled
         folder.CompressionOptions.WatchFolderForChanges = session.WatchFolderForChanges
     End Sub
 
@@ -406,6 +413,22 @@ Partial Public NotInheritable Class HomeViewModel : Inherits ObservableRecipient
             newWatched.CompressionLevel = existingWatched.CompressionLevel
         Else
             newWatched.CompressionLevel = Core.WOFHelper.GetDominantCompressionMode(folder.AnalysisResults)
+        End If
+
+        Dim skipList As New List(Of String)
+        If folder.CompressionOptions.SkipListEnabled Then
+            If folder.CompressionOptions.SkipList?.Count > 0 Then skipList.AddRange(folder.CompressionOptions.SkipList)
+            If folder.CompressionOptions.SkipUserSubmittedFiletypes AndAlso folder.WikiPoorlyCompressedFiles?.Count > 0 Then
+                skipList.AddRange(folder.WikiPoorlyCompressedFiles)
+            End If
+        End If
+        newWatched.SkipList = skipList.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+
+        ' Marc's watcher update path intentionally preserves existing objects so offline
+        ' folders stay tracked. Update its per-folder exclusions explicitly before the
+        ' normal metadata merge, rather than replacing the watched object.
+        If existingWatched IsNot Nothing Then
+            existingWatched.SkipList = New List(Of String)(newWatched.SkipList)
         End If
 
         _watcher.AddOrUpdateWatched(newWatched)
