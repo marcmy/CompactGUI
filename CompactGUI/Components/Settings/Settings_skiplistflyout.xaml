@@ -5,14 +5,18 @@
                  xmlns:local="clr-namespace:CompactGUI"
                  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-                 Width="620" Height="400"
-                 d:DesignHeight="400" d:DesignWidth="500"
-                 Background="{DynamicResource ApplicationBackgroundBrush}"
+                 Width="620"
+                 Height="400"
+                 d:DesignHeight="400"
+                 d:DesignWidth="500"
                  ui:Design.Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                 Background="{DynamicResource ApplicationBackgroundBrush}"
                  ExtendsContentIntoTitleBar="True"
                  Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                 RenderOptions.BitmapScalingMode="HighQuality" RenderOptions.ClearTypeHint="Enabled"
-                 WindowBackdropType="Mica" WindowStartupLocation="CenterScreen"
+                 RenderOptions.BitmapScalingMode="HighQuality"
+                 RenderOptions.ClearTypeHint="Enabled"
+                 WindowBackdropType="Mica"
+                 WindowStartupLocation="CenterScreen"
                  mc:Ignorable="d">
     <ui:FluentWindow.Resources>
         <DataTemplate x:Key="NameTokenTemplate">
@@ -25,17 +29,51 @@
                 </Storyboard>
             </DataTemplate.Resources>
             <Border x:Name="border"
-                    Height="28" MinWidth="50"
-                    Margin="5,8,5,0" Padding="10,0"
-                    Background="#7AB3C6D8" BorderThickness="0" CornerRadius="5">
-
-                <TextBlock Text="{Binding}"
-                           Grid.Column="0"
-                           Margin="0,-1,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"
-                           FontSize="13" Foreground="Black" TextWrapping="NoWrap" />
-
+                    Height="28" MinWidth="70"
+                    Margin="5 8 5 0" Padding="10 0"
+                    Background="#7AB3C6D8" BorderThickness="0" CornerRadius="5" Cursor="Hand">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Margin="0 -1 4 0" HorizontalAlignment="Left" VerticalAlignment="Center"
+                               FontSize="13" Foreground="Black" MouseLeftButtonUp="Chip_MouseLeftButtonUp"
+                               Text="{Binding}"
+                               TextWrapping="NoWrap" />
+                    <Button x:Name="deleteButton"
+                            Grid.Column="1"
+                            Margin="0 0 -4 0" Padding="3" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Click="ChipDelete_Click" Content="&#x2715;" Cursor="Hand" FontSize="11" FontWeight="Bold"
+                            Foreground="#FF404040" Visibility="Collapsed">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="3">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#22000000" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </Grid>
             </Border>
             <DataTemplate.Triggers>
+                <Trigger SourceName="border" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="deleteButton" Property="Visibility" Value="Visible" />
+                </Trigger>
                 <EventTrigger RoutedEvent="FrameworkElement.Loaded">
                     <BeginStoryboard Storyboard="{StaticResource OnLoaded1}" />
                 </EventTrigger>
@@ -43,39 +81,99 @@
         </DataTemplate>
     </ui:FluentWindow.Resources>
     <Grid x:Name="MainGrid">
-        <ui:TitleBar Panel.ZIndex="10"
-                     ShowMaximize="False" ShowMinimize="False" />
-        <TextBlock Text="{local:Localize SetFiletypeManagement_LocalSkipFiletypesEdit}"
-                   d:Text="edit skipped filetypes"
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <ui:TitleBar Panel.ZIndex="10" ShowMaximize="False" ShowMinimize="False" />
+        <TextBlock x:Name="UiTitle"
                    Margin="10"
-                   FontSize="22" FontWeight="SemiBold" />
-        <local:TokenizedTextBox x:Name="UiTokenizedText"
-                                Margin="10,50,10,80"
-                                AcceptsTab="False"
-                                Background="{StaticResource CardBackground}"
-                                CaretBrush="{StaticResource CardForeground}"
-                                Foreground="{StaticResource CardForeground}"
-                                TokenTemplate="{DynamicResource NameTokenTemplate}"
-                                VerticalScrollBarVisibility="Visible">
-            <FlowDocument>
-                <Paragraph>
-                    <Run />
-                </Paragraph>
-            </FlowDocument>
-        </local:TokenizedTextBox>
+                   d:Text="edit skipped filetypes" FontSize="22" FontWeight="SemiBold"
+                   Text="{local:Localize SetFiletypeManagement_LocalSkipFiletypesEdit}" />
+        <Grid Grid.Row="0" Margin="10 50 10 0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border x:Name="UiExtensionSidebar"
+                    Grid.Column="0"
+                    Width="190"
+                    Margin="0 0 10 0"
+                    Background="{StaticResource CardBackground}"
+                    Visibility="Collapsed">
+                <DockPanel>
+                    <TextBlock Margin="10 8 10 8"
+                               d:Text="Extensions in this folder" DockPanel.Dock="Top" FontSize="13" FontWeight="SemiBold"
+                               Text="{local:Localize SkipListFlyout_ExtensionsInFolder}" />
+                    <ListBox x:Name="UiExtensionList"
+                             Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="UiExtensionList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="Consolas" FontSize="13" Text="{Binding Key}" />
+                                    <TextBlock Margin="6 0 0 0"
+                                               FontSize="13" Foreground="#FF98A9B9"
+                                               Text="{Binding Value, StringFormat=({0})}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+            <Border Grid.Column="1"
+                    Background="{StaticResource CardBackground}"
+                    BorderBrush="{StaticResource CardBackground}"
+                    BorderThickness="1">
+                <ScrollViewer x:Name="UiTokenScroller" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="4 0 4 0">
+                        <ItemsControl x:Name="UiTokenList" Margin="0 0 0 4" ItemTemplate="{StaticResource NameTokenTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
 
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+        <WrapPanel x:Name="UiCheckboxPanel"
+                   Grid.Row="1"
+                   Margin="10 10 10 0"
+                   Visibility="Collapsed">
+            <CheckBox x:Name="UiChkIncludeGlobal"
+                      Margin="0 0 20 0" VerticalAlignment="Center"
+                      d:Content="Include global skipped file types" Checked="UiChkIncludeGlobal_Checked"
+                      Content="{local:Localize SkipListFlyout_IncludeGlobal}"
+                      Unchecked="UiChkIncludeGlobal_Unchecked" />
+            <CheckBox x:Name="UiChkIncludeWiki"
+                      VerticalAlignment="Center"
+                      d:Content="Include wiki/estimator skipped file types" Checked="UiChkIncludeWiki_Checked"
+                      Content="{local:Localize SkipListFlyout_IncludeWiki}"
+                      ToolTip="{local:Localize SkipListFlyout_IncludeWikiTip}" Unchecked="UiChkIncludeWiki_Unchecked" />
+        </WrapPanel>
+        <ui:TextBox x:Name="UiTokenInput"
+                    Grid.Row="2"
+                    Margin="10 10 10 20" Padding="5 8 5 8"
+                    BorderThickness="0"
+                    CaretBrush="{StaticResource CardForeground}"
+                    Foreground="{StaticResource CardForeground}"
+                    PlaceholderText="Enter a file/folder pattern. Press [Enter] to add" />
         <Button x:Name="UiSave"
-                Content="{local:Localize UniSave}"
-                d:Content="Save"
+                Grid.Row="3"
                 Width="100"
-                Margin="0,0,130,20" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Click="UISave_Click" />
+                Margin="0 0 130 20" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                d:Content="Save" Click="UISave_Click"
+                Content="{local:Localize UniSave}" />
         <Button x:Name="UiReset"
-                Content="{local:Localize UniReset}"
-                d:Content="Reset"
+                Grid.Row="3"
                 Width="100"
-                Margin="0,0,10,20" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Click="UIReset_Click" />
+                Margin="0 0 10 20" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                d:Content="Reset" Click="UIReset_Click"
+                Content="{local:Localize UniReset}" />
 
     </Grid>
 </ui:FluentWindow>
