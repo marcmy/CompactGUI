@@ -49,11 +49,14 @@ Public Class BackgroundCompactor
     End Sub
 
 
-    Private Function CreateCompactor(folder As String, compressionLevel As Core.WOFCompressionAlgorithm) As Core.Compactor
+    Private Function CreateCompactor(folder As String,
+                                     compressionLevel As Core.WOFCompressionAlgorithm,
+                                     Optional excludedFileTypes As String() = Nothing) As Core.Compactor
 
         If compressionLevel = Core.WOFCompressionAlgorithm.NO_COMPRESSION Then Return Nothing
 
-        Return New Core.Compactor(folder, compressionLevel, _excludedFileTypes, New Core.Analyser(folder, NullLogger(Of Core.Analyser).Instance))
+        Dim effectiveExclusions = If(excludedFileTypes Is Nothing, _excludedFileTypes, excludedFileTypes)
+        Return New Core.Compactor(folder, compressionLevel, effectiveExclusions, New Core.Analyser(folder, NullLogger(Of Core.Analyser).Instance))
 
     End Function
 
@@ -89,7 +92,8 @@ Public Class BackgroundCompactor
 
                 Try
                     WatcherLog.CompactingFolder(_logger, folder.DisplayName)
-                    compactor = CreateCompactor(folder.Folder, folder.CompressionLevel)
+                    Dim folderSkipList = If(folder.SkipList Is Nothing, Array.Empty(Of String), folder.SkipList.ToArray())
+                    compactor = CreateCompactor(folder.Folder, folder.CompressionLevel, folderSkipList)
                     If compactor Is Nothing Then Return False
 
                     SyncLock _compactorLock
