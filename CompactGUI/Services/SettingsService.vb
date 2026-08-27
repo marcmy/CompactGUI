@@ -13,8 +13,18 @@ Public Class SettingsService : Implements ISettingsService
     Public Property AppSettings As Settings Implements ISettingsService.AppSettings
 
     Public Sub New()
+        Me.New(String.Equals(New IO.DirectoryInfo(AppContext.BaseDirectory).Name, "compactgui", StringComparison.OrdinalIgnoreCase))
+    End Sub
 
-        DataFolder = New IO.DirectoryInfo(IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IridiumIO", "CompactGUI"))
+    Public Sub New(truePortable As Boolean)
+
+        If truePortable Then
+            DataFolder = New IO.DirectoryInfo(IO.Path.Combine(IO.Path.GetDirectoryName(AppContext.BaseDirectory), ".CompactGUIData"))
+        Else
+            DataFolder = New IO.DirectoryInfo(IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IridiumIO", "CompactGUI"))
+        End If
+
+
         SettingsJSONFile = New IO.FileInfo(IO.Path.Combine(DataFolder.FullName, "settings.json"))
 
         SettingsVersion = 1.2

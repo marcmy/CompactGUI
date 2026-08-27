@@ -186,6 +186,7 @@ Public Class CompressableFolderService
         folder.AnalysisResults = New ObservableCollection(Of AnalysedFileDetails)(retAnalysisResults)
         folder.UncompressedBytes = folder.Analyser.UncompressedBytes
         folder.CompressedBytes = folder.Analyser.CompressedBytes
+        folder.IsDirectStorage = folder.Analyser.IsDirectStorage
 
         If folder.Analyser.ContainsCompressedFiles OrElse folder.IsFreshlyCompressed Then
             folder.FolderActionState = ActionState.Results
@@ -294,6 +295,15 @@ Public Class CompressableFolderService
     End Function
 
     Private Function GetSkipList(folder As CompressableFolder) As String()
+        If Not folder.CompressionOptions.SkipListEnabled Then
+            Return Array.Empty(Of String)()
+        End If
+
+        ' A configured per-folder list is authoritative, including an explicitly empty list.
+        If folder.CompressionOptions.SkipList IsNot Nothing Then
+            Return folder.CompressionOptions.SkipList.ToArray
+        End If
+
         Dim exclist As String() = Array.Empty(Of String)()
 
         If folder.CompressionOptions.SkipPoorlyCompressedFileTypes AndAlso Application.GetService(Of ISettingsService).AppSettings.NonCompressableList.Count <> 0 Then

@@ -14,6 +14,7 @@ public sealed class Analyser : IDisposable
     private readonly FolderChangeMonitor _folderMonitor;
     public bool HasFolderChanged => _folderMonitor.HasChanged;
     public DateTime LastFolderChanged => _folderMonitor.LastChanged;
+    public bool IsDirectStorage { get; private set; }
 
 
     public Analyser(string folder, ILogger<Analyser> logger)
@@ -65,12 +66,18 @@ public sealed class Analyser : IDisposable
     {
 
         List<AnalysedFileDetails>? AnalysedFileDetails;
+        IsDirectStorage = false;
 
         AnalyserLog.StartingAnalysis(_logger, FolderName);
         Stopwatch sw = Stopwatch.StartNew();
         try
         {
-            var allFiles = await Task.Run(() => Directory.EnumerateFiles(FolderName, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }).AsShortPathNames(), cancellationToken).ConfigureAwait(false);
+            var allFiles = (await Task.Run(() => Directory.EnumerateFiles(FolderName, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }), cancellationToken).ConfigureAwait(false))
+                .AsShortPathNames()
+                .ToList();
+
+            IsDirectStorage = allFiles.Any(f => Path.GetFileName(f).Equals("dstorage.dll", StringComparison.OrdinalIgnoreCase));
+
             var fileDetails = allFiles
                 .AsParallel()
                 .WithCancellation(cancellationToken)

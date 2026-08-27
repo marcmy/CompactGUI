@@ -308,6 +308,10 @@ public sealed class Compactor : ICompressor, IDisposable
         uint clusterSize = SharedMethods.GetClusterSize(workingDirectory);
 
         var analysedFiles = await _analyser.GetAnalysedFilesAsync(cancellationTokenSource.Token) ?? [];
+        var excludedFiles = SkipListMatcher.GetExcludedFiles(
+            workingDirectory,
+            analysedFiles.Select(fl => fl.FileName),
+            excludedFilesAndExtensions);
 
         return analysedFiles
             .Where(fl =>
@@ -315,8 +319,7 @@ public sealed class Compactor : ICompressor, IDisposable
                 && !resumeExcludedFiles.Contains(fl.FileName)
                 && !notBeneficialCache.ShouldSkip(fl.FileName, wofCompressionAlgorithm)
                 && fl.UncompressedSize > clusterSize
-                && (fl.FileInfo == null || !excludedFilesAndExtensions.Contains(fl.FileInfo.Extension))
-                && !excludedFilesAndExtensions.Contains(fl.FileName)
+                && !excludedFiles.Contains(fl.FileName)
             )
             .Select(fl => new FileDetails(fl.FileName, fl.UncompressedSize, fl.CompressionMode))
             .ToList();
