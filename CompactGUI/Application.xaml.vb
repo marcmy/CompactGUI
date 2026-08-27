@@ -17,7 +17,7 @@ Imports Coravel.Scheduling.Schedule
 
 Partial Public Class Application
 
-    Public Shared ReadOnly AppVersion As New SemVersion(4, 0, 0, "beta", 7)
+    Public Shared ReadOnly AppVersion As New SemVersion(4, 0, 0, "beta", 9)
 
     Public Shared ReadOnly Property AppVersionText As String
         Get
@@ -228,7 +228,7 @@ Partial Public Class Application
         Dim ex = TryCast(e.ExceptionObject, Exception)
         Dim logger = GetService(Of ILogger(Of Application))()
         If logger IsNot Nothing AndAlso ex IsNot Nothing Then
-            logger.LogCritical(ex, "Unhandled domain exception: {Message}", ex.Message)
+            logger.LogCritical(ex, "Unhandled domain exception: {Message}", ex.Exception.Message)
         End If
     End Sub
 
@@ -300,7 +300,7 @@ Partial Public Class Application
     '            Using writer = New StreamWriter(client)
     '                writer.WriteLine(args(0))
     '            End Using
-    '        End Using
+    '        End If
     '    Else
     '        MessageBox.Show("An instance of CompactGUI is already running")
     '    End If
