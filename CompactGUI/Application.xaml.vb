@@ -228,7 +228,7 @@ Partial Public Class Application
         Dim ex = TryCast(e.ExceptionObject, Exception)
         Dim logger = GetService(Of ILogger(Of Application))()
         If logger IsNot Nothing AndAlso ex IsNot Nothing Then
-            logger.LogCritical(ex, "Unhandled domain exception: {Message}", ex.Exception.Message)
+            logger.LogCritical(ex, "Unhandled domain exception: {Message}", ex.Message)
         End If
     End Sub
 
@@ -300,7 +300,7 @@ Partial Public Class Application
     '            Using writer = New StreamWriter(client)
     '                writer.WriteLine(args(0))
     '            End Using
-    '        End If
+    '        End Using
     '    Else
     '        MessageBox.Show("An instance of CompactGUI is already running")
     '    End If
