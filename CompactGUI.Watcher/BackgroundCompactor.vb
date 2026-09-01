@@ -96,8 +96,12 @@ Public Class BackgroundCompactor
                     compactor = CreateCompactor(folder.Folder, folder.CompressionLevel, folderSkipList)
                     If compactor Is Nothing Then Return False
 
+                    'Pause can arrive after the background run starts but before this folder's
+                    'native compactor exists. Publish the compactor and inherit the current pause
+                    'state atomically so a newly-created compactor cannot run while the user is active.
                     SyncLock _compactorLock
                         _compactor = compactor
+                        If isCompactingPaused Then compactor.Pause()
                     End SyncLock
 
                     Dim compactingTask = compactor.RunAsync(Nothing)
