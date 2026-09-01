@@ -157,6 +157,6 @@ public sealed class Analyser : IDisposable
     public void Dispose()
     {
         _folderMonitor.Dispose();
-        _analysedFileDetails?.Clear();
+        _analysedFileDetails = null;
     }
 }

@@ -123,12 +123,16 @@ Public MustInherit Class CompressableFolder : Inherits ObservableObject : Implem
 
     Public Sub Dispose() Implements IDisposable.Dispose
         Compressor?.Dispose()
+        Compressor = Nothing
+
         Analyser?.Dispose()
+        Analyser = Nothing
 
-        AnalysisResults?.Clear()
-        PoorlyCompressedFiles?.Clear()
-        WikiPoorlyCompressedFiles?.Clear()
-
+        AnalysisResults = New ObservableCollection(Of AnalysedFileDetails)()
+        PoorlyCompressedFiles = Nothing
+        WikiPoorlyCompressedFiles = New List(Of String)()
+        WikiCompressionResults = Nothing
+        FolderBGImage = Nothing
 
         GC.SuppressFinalize(Me)
     End Sub
