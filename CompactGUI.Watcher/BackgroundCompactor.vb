@@ -64,24 +64,33 @@ Public Class BackgroundCompactor
     End Function
 
 
-    Public Async Function StartCompactingAsync(folders As IEnumerable(Of WatchedFolder)) As Task(Of Boolean)
+    Public Async Function StartCompactingAsync(folders As IEnumerable(Of WatchedFolder), Optional startCancellationToken As CancellationToken = Nothing) As Task(Of Boolean)
         If IsCompactorActive Then Return False
+        If startCancellationToken.IsCancellationRequested Then Return False
 
         cancellationTokenSource?.Dispose()
         Dim runCancellation = New CancellationTokenSource()
         cancellationTokenSource = runCancellation
 
-        WatcherLog.BackgroundCompactingStarted(_logger)
-        IsCompactorActive = True
-        isCompacting = True
-        isCompactingPaused = False
-
         Dim currentProcess As Process = Process.GetCurrentProcess()
         Dim originalPriority As ProcessPriorityClass = ProcessPriorityClass.Normal
+        Dim priorityChanged As Boolean = False
 
         Try
+            WatcherLog.BackgroundCompactingStarted(_logger)
+            IsCompactorActive = True
+
+            'Publish the initial pause state before marking the run active. If system activity
+            'resumes before this point, the start token catches it below; if it resumes after
+            'this point, PauseCompacting can safely record the pause for the new compactor.
+            isCompactingPaused = False
+            isCompacting = True
+
+            If startCancellationToken.IsCancellationRequested Then Return False
+
             originalPriority = currentProcess.PriorityClass
             currentProcess.PriorityClass = ProcessPriorityClass.Idle
+            priorityChanged = True
 
             For Each folder In folders.ToList
                 If runCancellation.IsCancellationRequested Then Return False
@@ -187,13 +196,14 @@ Public Class BackgroundCompactor
             End If
             runCancellation.Dispose()
 
-            Try
-                currentProcess.PriorityClass = originalPriority
-            Catch ex As Exception
-                _logger.LogDebug(ex, "Unable to restore CompactGUI process priority.")
-            Finally
-                currentProcess.Dispose()
-            End Try
+            If priorityChanged Then
+                Try
+                    currentProcess.PriorityClass = originalPriority
+                Catch ex As Exception
+                    _logger.LogDebug(ex, "Unable to restore CompactGUI process priority.")
+                End Try
+            End If
+            currentProcess.Dispose()
         End Try
     End Function
 

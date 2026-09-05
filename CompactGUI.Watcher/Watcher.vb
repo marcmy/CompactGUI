@@ -26,6 +26,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
     Private ReadOnly _parseWatchersSemaphore As New SemaphoreSlim(1, 1)
     Private ReadOnly _runWatcherSemaphore As New SemaphoreSlim(1, 1)
     Private _runCancellationTokenSource As CancellationTokenSource
+    Private _runIsIdleTriggered As Boolean
     Private ReadOnly _runCancellationLock As New Object
 
     Private ReadOnly _logger As ILogger(Of Watcher)
@@ -107,6 +108,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
         SyncLock _runCancellationLock
             _runCancellationTokenSource = ownedCancellation
+            _runIsIdleTriggered = Not runAll
         End SyncLock
         IsRunning = True
 
@@ -128,7 +130,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
                 Return False
             End If
             If _parseWatchersSemaphore.CurrentCount <> 0 AndAlso (IsBackgroundCompactingEnabled OrElse runAll) Then
-                Await BackgroundCompact(runAll) 'The background compactor manages its own cancellation token.
+                Await BackgroundCompact(runAll, If(runAll, CancellationToken.None, runToken)) 'The background compactor manages its own cancellation token once started.
             End If
             If runToken.IsCancellationRequested Then
                 _logger.LogInformation("Watcher run cancelled by user.")
@@ -146,6 +148,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
             SyncLock _runCancellationLock
                 If Object.ReferenceEquals(_runCancellationTokenSource, ownedCancellation) Then
                     _runCancellationTokenSource = Nothing
+                    _runIsIdleTriggered = False
                 End If
             End SyncLock
 
@@ -173,6 +176,20 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         BGCompactor.CancelCompacting()
     End Sub
 
+    Private Sub CancelIdleTriggeredRun()
+        Dim cancellation As CancellationTokenSource = Nothing
+
+        SyncLock _runCancellationLock
+            If _runIsIdleTriggered Then cancellation = _runCancellationTokenSource
+        End SyncLock
+
+        Try
+            cancellation?.Cancel()
+        Catch ex As ObjectDisposedException
+            'The idle-triggered run completed between retrieving and cancelling its token source.
+        End Try
+    End Sub
+
 
 
     Private Sub OnSystemNotIdle(sender As Object, e As EventArgs)
@@ -183,6 +200,10 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         Dim bgMode = _settingsService.AppSettings.BackgroundModeSelection
         If bgMode <> BackgroundMode.IdleOnly Then Return
 
+        'If activity resumes while an idle-triggered analysis is still preparing a background
+        'run, cancel that pending transition. An already-running compactor is still paused below
+        'so the existing idle resume behaviour remains intact.
+        CancelIdleTriggeredRun()
         BGCompactor.PauseCompacting()
     End Sub
 
@@ -449,13 +470,14 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
     End Function
 
-    Public Async Function BackgroundCompact(Optional runAll As Boolean = False) As Task
+    Public Async Function BackgroundCompact(Optional runAll As Boolean = False, Optional startCancellationToken As CancellationToken = Nothing) As Task
 
         Dim acquired = Await _parseWatchersSemaphore.WaitAsync(0)
         If Not acquired Then Return
 
         Try
 
+            If startCancellationToken.IsCancellationRequested Then Return
             If BGCompactor.IsCompactorActive Then Return
 
             RefreshWatchedFolderAvailability()
@@ -473,7 +495,8 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
 
             If foldersToCompress.Any = 0 Then Return
 
-            Await BGCompactor.StartCompactingAsync(foldersToCompress)
+            If startCancellationToken.IsCancellationRequested Then Return
+            Await BGCompactor.StartCompactingAsync(foldersToCompress, startCancellationToken)
 
             OnPropertyChanged(NameOf(TotalSaved))
         Finally
