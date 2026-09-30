@@ -24,7 +24,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git remote add upstream https://github.com/IridiumIO/CompactGUI.git
           git fetch --prune upstream master
-          git switch --force-create sync/upstream-master origin/master
+          git switch --force-create sync origin/master
 
           set +e
           git merge --no-commit --no-ff -X ours upstream/master
@@ -51,4 +51,4 @@ jobs:
 
           git add -A
           git commit -m "Merge upstream CompactGUI master (preserve fork conflicts)"
-          git push --force origin HEAD:refs/heads/sync/upstream-master
+          git push --force origin HEAD:refs/heads/sync
