@@ -292,13 +292,20 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
     End Function
 
     Private Sub UpdateRegistryBasedOnWatchedFolders()
-        Dim registryKey As RegistryKey = Registry.CurrentUser.OpenSubKey("Software\Microsoft\Windows\CurrentVersion\Run", True)
-
-        If WatchedFolders.Count > 0 Then
-            registryKey.SetValue("CompactGUI", Environment.ProcessPath & " -tray")
-        Else
-            registryKey.DeleteValue("CompactGUI", False)
-        End If
+        Try
+            Const runKeyPath As String = "Software\Microsoft\Windows\CurrentVersion\Run"
+            Using registryKey = Registry.CurrentUser.CreateSubKey(runKeyPath, True)
+                If WatchedFolders.Count > 0 Then
+                    registryKey.SetValue("CompactGUI", $"""{Environment.ProcessPath}"" -tray")
+                Else
+                    registryKey.DeleteValue("CompactGUI", False)
+                End If
+            End Using
+        Catch ex As Exception When TypeOf ex Is UnauthorizedAccessException OrElse
+                                   TypeOf ex Is Security.SecurityException OrElse
+                                   TypeOf ex Is IO.IOException
+            _logger.LogWarning(ex, "Unable to update watcher autostart registration.")
+        End Try
     End Sub
 
 
@@ -313,6 +320,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         End If
         OnPropertyChanged(NameOf(TotalSaved))
         If immediateFlushToDisk Then WriteToFile()
+        UpdateRegistryBasedOnWatchedFolders()
 
     End Sub
 
@@ -370,6 +378,7 @@ Partial Public Class Watcher : Inherits ObservableRecipient : Implements IRecipi
         item.Dispose()
         WatchedFolders.Remove(item)
         If writeToFile Then Await WriteToFileAsync()
+        UpdateRegistryBasedOnWatchedFolders()
 
     End Function
 

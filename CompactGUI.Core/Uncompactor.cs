@@ -14,7 +14,7 @@ namespace CompactGUI.Core;
 public sealed class Uncompactor : ICompressor, IDisposable
 {
 
-    private SemaphoreSlim pauseSemaphore = new SemaphoreSlim(1, 2);
+    private readonly ManualResetEventSlim pauseGate = new(initialState: true);
     private CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private ConcurrentDictionary<string, int> processedFileCount = new ConcurrentDictionary<string, int>();
     private long totalProcessedBytes;
@@ -88,12 +88,7 @@ public sealed class Uncompactor : ICompressor, IDisposable
         CancellationToken ctx)
     {
         UncompactorLog.ProcessingFile(_logger, file.FileName);
-        try
-        {
-            await pauseSemaphore.WaitAsync(ctx).ConfigureAwait(false);
-            pauseSemaphore.Release();
-        }
-        catch (OperationCanceledException) { throw; }
+        pauseGate.Wait(ctx);
         ctx.ThrowIfCancellationRequested();
 
         long currentProcessedBytes = Interlocked.Read(ref totalProcessedBytes);
@@ -177,27 +172,27 @@ public sealed class Uncompactor : ICompressor, IDisposable
     public void Pause()
     {
         UncompactorLog.DecompressionPaused(_logger);
-        pauseSemaphore.Wait();
+        pauseGate.Reset();
     }
 
 
     public void Resume()
     {
-        if (pauseSemaphore.CurrentCount == 0) pauseSemaphore.Release();
+        pauseGate.Set();
         UncompactorLog.DecompressionResumed(_logger);
     }
 
 
     public void Cancel()
     {
-        Resume();
+        pauseGate.Set();
         cancellationTokenSource.Cancel();
     }
 
 
     public void Dispose()
     {
-        pauseSemaphore.Dispose();
+        pauseGate.Dispose();
         cancellationTokenSource.Dispose();
     }
 

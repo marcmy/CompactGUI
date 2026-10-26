@@ -29,7 +29,7 @@ public static class SharedMethods
     {
         if (!Directory.Exists(folder))
             return FolderVerificationResult.DirectoryDoesNotExist;
-        else if (folder.ToLowerInvariant().Contains(Environment.GetFolderPath(Environment.SpecialFolder.Windows).ToLowerInvariant()))
+        else if (IsPathWithinDirectory(folder, Environment.GetFolderPath(Environment.SpecialFolder.Windows)))
             return FolderVerificationResult.SystemDirectory;
         else if (folder.EndsWith(":\\"))
             return FolderVerificationResult.RootDirectory;
@@ -89,11 +89,17 @@ public static class SharedMethods
             Path.Combine(userProfile, "OneDrive - Business") // Alternative OneDrive for Business
         };
 
-        string normalizedFolderPath = Path.GetFullPath(folderPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToLowerInvariant();
+        return oneDrivePaths.Any(oneDrivePath => IsPathWithinDirectory(folderPath, oneDrivePath));
 
-        return oneDrivePaths.Any(oneDrivePath =>
-                    normalizedFolderPath.StartsWith(Path.GetFullPath(oneDrivePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToLowerInvariant()));
+    }
 
+    internal static bool IsPathWithinDirectory(string path, string directory)
+    {
+        string normalizedPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedDirectory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return normalizedPath.Equals(normalizedDirectory, StringComparison.OrdinalIgnoreCase) ||
+               normalizedPath.StartsWith(normalizedDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     public static void PreventSleep()

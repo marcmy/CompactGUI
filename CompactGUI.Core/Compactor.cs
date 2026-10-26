@@ -29,7 +29,7 @@ public sealed class Compactor : ICompressor, IDisposable
     private long totalProcessedBytes = 0;
     private int processedFileCount = 0;
     private int failedFileCount = 0;
-    private readonly SemaphoreSlim pauseSemaphore = new SemaphoreSlim(1, 2);
+    private readonly ManualResetEventSlim pauseGate = new(initialState: true);
     private readonly CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
     private readonly ConcurrentDictionary<string, WOFCompressionAlgorithm> processedFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> failedFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -209,8 +209,8 @@ public sealed class Compactor : ICompressor, IDisposable
         ReportProgress("Waiting to process file", file.FileName);
         CompactorLog.ProcessingFile(_logger, file.FileName, file.UncompressedSize);
 
-        await pauseSemaphore.WaitAsync(token).ConfigureAwait(false);
-        pauseSemaphore.Release();
+        pauseGate.Wait(token);
+        token.ThrowIfCancellationRequested();
 
         var workItem = new CompressionWorkItem(file.FileName, file.UncompressedSize);
         long currentProcessedBytes = progressBaseline.ProcessedBytes + Interlocked.Read(ref totalProcessedBytes);
@@ -333,20 +333,20 @@ public sealed class Compactor : ICompressor, IDisposable
     public void Pause()
     {
         CompactorLog.CompressionPaused(_logger);
-        pauseSemaphore.Wait(cancellationTokenSource.Token);
+        pauseGate.Reset();
     }
 
 
     public void Resume()
     {
-        if (pauseSemaphore.CurrentCount == 0) pauseSemaphore.Release();  
+        pauseGate.Set();
         CompactorLog.CompressionResumed(_logger);
     }
 
 
     public void Cancel()
     {
-        Resume();
+        pauseGate.Set();
         cancellationTokenSource.Cancel();
     }
 
@@ -354,7 +354,7 @@ public sealed class Compactor : ICompressor, IDisposable
     public void Dispose()
     {
         cancellationTokenSource?.Dispose();
-        pauseSemaphore?.Dispose();
+        pauseGate.Dispose();
         if (compressionInfoPtr != IntPtr.Zero)
         {
             Marshal.FreeHGlobal(compressionInfoPtr);
