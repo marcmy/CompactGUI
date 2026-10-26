@@ -4,7 +4,6 @@
     
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <RuntimeFrameworkVersion>10.0.11</RuntimeFrameworkVersion>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RootNamespace>CompactGUI</RootNamespace>
     <UseWPF>true</UseWPF>
@@ -72,12 +71,6 @@
     <ProjectReference Include="..\CompactGUI.Core\CompactGUI.Core.csproj" />
     <ProjectReference Include="..\CompactGUI.Logging\CompactGUI.Logging.csproj" />
     <ProjectReference Include="..\CompactGUI.Watcher\CompactGUI.Watcher.vbproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="FunctionalConverters">
-      <HintPath>..\..\FunctionalConverters\FunctionalConverters\bin\Release\net6.0-windows\FunctionalConverters.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
   <ItemGroup>
