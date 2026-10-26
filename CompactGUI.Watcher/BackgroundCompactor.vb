@@ -135,9 +135,14 @@ Public Class BackgroundCompactor
                     End If
 
                     Dim result = waitResult.Result
-                    If runCancellation.IsCancellationRequested OrElse Not result Then
+                    If runCancellation.IsCancellationRequested Then
                         Trace.WriteLine("Compacting cancelled by user.")
                         Return False
+                    End If
+
+                    If Not result Then
+                        _logger.LogInformation("Background compression found no work or could not complete {Folder}; continuing with the remaining watched folders. Work items: {WorkItemCount}.", folder.DisplayName, compactor.WorkItemCount)
+                        Continue For
                     End If
 
                     If folders.Contains(folder) Then
@@ -149,10 +154,11 @@ Public Class BackgroundCompactor
 
                             folder.LastCheckedDate = DateTime.Now
                             folder.LastCheckedSize = analyser.CompressedBytes
-                            folder.LastCompressedSize = analyser.CompressedBytes
+                            If compactor.ProcessedFiles.Count > 0 Then
+                                folder.LastCompressedSize = analyser.CompressedBytes
+                                folder.LastCompressedDate = DateTime.Now
+                            End If
                             folder.LastSystemModifiedDate = DateTime.Now
-
-                            folder.LastCompressedDate = DateTime.Now
                             folder.HasTargetChanged = False
                         End Using
                     End If

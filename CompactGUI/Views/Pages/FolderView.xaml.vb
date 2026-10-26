@@ -21,6 +21,14 @@ Public Class FolderView
     Public Sub New()
         InitializeComponent()
         AddHandler LayoutUpdated, AddressOf FolderView_LayoutUpdated
+        AddHandler DataContextChanged, AddressOf FolderView_DataContextChanged
+    End Sub
+
+    Private Sub FolderView_DataContextChanged(sender As Object, e As DependencyPropertyChangedEventArgs)
+        'The same FolderView displays every queued folder. A previous folder's details scroll
+        'offset otherwise carries into the next folder and can push its controls over the header.
+        FolderContentScrollViewer.ScrollToTop()
+        Dispatcher.BeginInvoke(New Action(Sub() FolderContentScrollViewer.ScrollToTop()), DispatcherPriority.Loaded)
     End Sub
 
     Private Sub FolderView_LayoutUpdated(sender As Object, e As EventArgs)

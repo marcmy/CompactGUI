@@ -24,7 +24,7 @@ Public NotInheritable Class WatcherViewModel : Inherits ObservableObject
 
     <RelayCommand>
     Public Async Function RunWatcher(token As CancellationToken) As Task
-        Await Watcher.RunWatcher(True, token)
+        Await Watcher.RunWatcher(True, token, isManual:=True)
     End Function
 
     <RelayCommand>

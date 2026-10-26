@@ -305,7 +305,7 @@
         <Separator Grid.Row="1"
                    Height="2" Background="#30FFFFFF"
                    BorderThickness="0"  />
-        <ui:DynamicScrollViewer Grid.Row="2"
+        <ui:DynamicScrollViewer x:Name="FolderContentScrollViewer" Grid.Row="2"
                                 CanContentScroll="True" Focusable="False" IsDeferredScrollingEnabled="False">
 
 

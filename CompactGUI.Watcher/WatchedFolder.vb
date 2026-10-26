@@ -182,7 +182,8 @@ Public Class WatchedFolder
     Public ReadOnly Property DecayPercentage As Decimal
         Get
             If LastCompressedSize = 0 Then Return 1
-            Return If(LastUncompressedSize = LastCompressedSize OrElse LastCompressedSize > LastUncompressedSize, 1D, Math.Clamp((LastCheckedSize - LastCompressedSize) / (LastUncompressedSize - LastCompressedSize), 0, 1))
+            If LastUncompressedSize <= LastCompressedSize Then Return 0
+            Return Math.Clamp((LastCheckedSize - LastCompressedSize) / (LastUncompressedSize - LastCompressedSize), 0D, 1D)
         End Get
     End Property
 

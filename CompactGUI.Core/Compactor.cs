@@ -106,7 +106,9 @@ public sealed class Compactor : ICompressor, IDisposable
         List<FileDetails> workingFiles;
         try
         {
-            workingFiles = (await BuildWorkingFilesList(filesList).ConfigureAwait(false)).ToList();
+            // Building the work list can scan and match every file in a watched folder.
+            // Start that work off the WPF thread even when the analyser has a cached result.
+            workingFiles = (await Task.Run(() => BuildWorkingFilesList(filesList), cancellationTokenSource.Token).ConfigureAwait(false)).ToList();
         }
         catch (OperationCanceledException)
         {
