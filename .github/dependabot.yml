@@ -1,7 +1,11 @@
 version: 2
 updates:
   - package-ecosystem: "nuget"
-    directory: "/CompactGUI"
+    directories:
+      - "/CompactGUI"
+      - "/CompactGUI.Core"
+      - "/CompactGUI.Logging"
+      - "/CompactGUI.Watcher"
     schedule:
       interval: "daily"
       time: "12:00"
