@@ -25,7 +25,7 @@ jobs:
       - name: Scan repository with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: latest
+          version: v0.76.2
           scan-type: fs
           scan-ref: .
           format: sarif
@@ -34,7 +34,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
       - name: Upload findings to GitHub Security
-        if: always()
+        if: success()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
